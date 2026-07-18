@@ -1,29 +1,35 @@
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert';
 
 describe('config', () => {
-  let envBackup;
+  let envBackup: Record<string, string | undefined>;
 
   before(() => {
     envBackup = {};
     for (const key of Object.keys(process.env)) {
-      if (key.startsWith('RELAY_') || key.startsWith('SMTP_') || key.startsWith('API_') || key.startsWith('SPAM_') || key.startsWith('DB_') || key.startsWith('QUARANTINE_') || key.startsWith('DEFAULT_')) {
+      if (
+        key.startsWith('RELAY_') || key.startsWith('SMTP_') || key.startsWith('API_') ||
+        key.startsWith('SPAM_') || key.startsWith('DB_') || key.startsWith('QUARANTINE_') ||
+        key.startsWith('DEFAULT_')
+      ) {
         envBackup[key] = process.env[key];
         delete process.env[key];
       }
     }
+    delete require.cache[require.resolve('../dist/config')];
   });
 
   after(() => {
     for (const [key, value] of Object.entries(envBackup)) {
       if (value !== undefined) process.env[key] = value;
     }
+    delete require.cache[require.resolve('../dist/config')];
+    require('../dist/config');
   });
 
   it('should use default values when env vars are not set', () => {
-    delete require.cache[require.resolve('../src/config')];
-    delete require.cache[require.resolve('../src/db')];
-    const config = require('../src/config');
+    delete require.cache[require.resolve('../dist/config')];
+    const config = require('../dist/config').default;
     assert.equal(config.relayId, 'relay-01');
     assert.equal(config.relayHostname, 'mx1.emailrelay.com');
     assert.equal(config.smtpPort, 2525);
@@ -48,8 +54,8 @@ describe('config', () => {
     process.env.DEFAULT_TENANT_NAME = 'TestCo';
     process.env.DEFAULT_TENANT_API_KEY = 'test-key';
 
-    delete require.cache[require.resolve('../src/config')];
-    const config = require('../src/config');
+    delete require.cache[require.resolve('../dist/config')];
+    const config = require('../dist/config').default;
 
     assert.equal(config.relayId, 'test-relay');
     assert.equal(config.relaySecret, 'my-super-secret-key');
@@ -67,16 +73,16 @@ describe('config', () => {
   it('should parse float thresholds correctly', () => {
     process.env.SPAM_QUARANTINE_THRESHOLD = '4.5';
     process.env.SPAM_REJECT_THRESHOLD = '9.5';
-    delete require.cache[require.resolve('../src/config')];
-    const config = require('../src/config');
+    delete require.cache[require.resolve('../dist/config')];
+    const config = require('../dist/config').default;
     assert.equal(config.quarantineThreshold, 4.5);
     assert.equal(config.rejectThreshold, 9.5);
   });
 
   it('should parse port numbers correctly', () => {
     process.env.SMTP_PORT = '465';
-    delete require.cache[require.resolve('../src/config')];
-    const config = require('../src/config');
+    delete require.cache[require.resolve('../dist/config')];
+    const config = require('../dist/config').default;
     assert.strictEqual(config.smtpPort, 465);
     assert.strictEqual(typeof config.smtpPort, 'number');
   });

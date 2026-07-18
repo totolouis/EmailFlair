@@ -17,7 +17,7 @@ function buildApiApp(): express.Application {
   app.use('/emails', requireTenant, emailsRouter);
   app.use('/lists', requireTenant, listsRouter);
 
-  app.use('/', express.static(path.join(__dirname, '..', '..', 'dashboard')));
+  app.use('/', express.static(path.join(__dirname, '..', 'dashboard')));
 
   return app;
 }

@@ -1,24 +1,16 @@
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert');
-const express = require('express');
-const request = require('supertest');
-const path = require('path');
-const fs = require('fs');
-
-process.env.DB_PATH = ':memory:';
-
-delete require.cache[require.resolve('../src/config')];
-delete require.cache[require.resolve('../src/db')];
-delete require.cache[require.resolve('../src/api/auth')];
-delete require.cache[require.resolve('../src/api/routes/emails')];
-delete require.cache[require.resolve('../src/routing-engine')];
-
-const { initDb, closeDb, getDb, uuid } = require('../src/db');
-const config = require('../src/config');
-const { requireTenant } = require('../src/api/auth');
-const emailsRouter = require('../src/api/routes/emails');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert';
+import express from 'express';
+import request from 'supertest';
+import path from 'path';
+import fs from 'fs';
 
 const TEST_DIR = path.join(__dirname, '..', 'data', 'test-emails-' + process.pid);
+
+import databaseService from '../dist/services/DatabaseService';
+import config from '../dist/config';
+import { requireTenant } from '../dist/middleware/AuthMiddleware';
+import emailsRouter from '../dist/api/routes/emails';
 
 function buildApp() {
   const app = express();
@@ -28,25 +20,25 @@ function buildApp() {
 }
 
 describe('emails API', () => {
-  let app;
-  let tenantId;
-  let testApiKey;
+  let app: express.Application;
+  let tenantId: string;
+  let testApiKey: string;
 
   before(() => {
     fs.mkdirSync(TEST_DIR, { recursive: true });
     config.quarantineDir = TEST_DIR;
 
-    initDb(':memory:');
-    const db = getDb();
+    databaseService.init(':memory:');
+    const db = databaseService.getDb();
     testApiKey = 'test-emails-key';
-    tenantId = uuid();
+    tenantId = databaseService.uuid();
     db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
       .run(tenantId, 'Test', testApiKey, new Date().toISOString());
     app = buildApp();
   });
 
   after(() => {
-    closeDb();
+    databaseService.close();
     fs.rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
@@ -54,26 +46,26 @@ describe('emails API', () => {
     return { Authorization: `Bearer ${testApiKey}` };
   }
 
-  function insertEmail(overrides = {}) {
-    const db = getDb();
-    const email = {
-      id: overrides.id || uuid(),
-      tenant_id: overrides.tenant_id || tenantId,
-      domain: overrides.domain || 'test.com',
-      sender: overrides.sender || 'sender@example.com',
-      recipient: overrides.recipient || 'user@test.com',
-      subject: overrides.subject || 'Test Subject',
-      remote_ip: overrides.remote_ip || '1.2.3.4',
-      spam_score: overrides.spam_score || 0,
-      decision: overrides.decision || 'FORWARDED',
-      status: overrides.status || 'FORWARDED',
-      relay_id: overrides.relay_id || 'relay-01',
-      reason: overrides.reason || null,
-      headers_json: overrides.headers_json || null,
-      size_bytes: overrides.size_bytes || 100,
-      eml_path: overrides.eml_path || null,
-      received_at: overrides.received_at || new Date().toISOString(),
-      processed_at: overrides.processed_at || new Date().toISOString(),
+  function insertEmail(overrides: Record<string, unknown> = {}) {
+    const db = databaseService.getDb();
+    const email: Record<string, unknown> = {
+      id: (overrides.id as string) || databaseService.uuid(),
+      tenant_id: (overrides.tenant_id as string) || tenantId,
+      domain: (overrides.domain as string) || 'test.com',
+      sender: (overrides.sender as string) || 'sender@example.com',
+      recipient: (overrides.recipient as string) || 'user@test.com',
+      subject: (overrides.subject as string) || 'Test Subject',
+      remote_ip: (overrides.remote_ip as string) || '1.2.3.4',
+      spam_score: (overrides.spam_score as number) || 0,
+      decision: (overrides.decision as string) || 'FORWARDED',
+      status: (overrides.status as string) || 'FORWARDED',
+      relay_id: (overrides.relay_id as string) || 'relay-01',
+      reason: (overrides.reason as string) || null,
+      headers_json: (overrides.headers_json as string) || null,
+      size_bytes: (overrides.size_bytes as number) || 100,
+      eml_path: (overrides.eml_path as string) || null,
+      received_at: (overrides.received_at as string) || new Date().toISOString(),
+      processed_at: (overrides.processed_at as string) || new Date().toISOString(),
     };
 
     db.prepare(`
@@ -108,14 +100,14 @@ describe('emails API', () => {
       insertEmail({ subject: 'Quarantined', status: 'QUARANTINED', decision: 'QUARANTINED' });
       const res = await request(app).get('/emails?status=QUARANTINED').set(auth());
       assert.equal(res.status, 200);
-      res.body.emails.forEach(e => assert.equal(e.status, 'QUARANTINED'));
+      res.body.emails.forEach((e: { status: string }) => assert.equal(e.status, 'QUARANTINED'));
     });
 
     it('should filter by domain', async () => {
       insertEmail({ subject: 'From other domain', domain: 'other.com' });
       const res = await request(app).get('/emails?domain=other.com').set(auth());
       assert.equal(res.status, 200);
-      res.body.emails.forEach(e => assert.equal(e.domain, 'other.com'));
+      res.body.emails.forEach((e: { domain: string }) => assert.equal(e.domain, 'other.com'));
     });
 
     it('should respect limit parameter', async () => {
@@ -125,13 +117,13 @@ describe('emails API', () => {
     });
 
     it('should not show other tenants emails', async () => {
-      const otherTenantId = uuid();
-      getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
+      const otherTenantId = databaseService.uuid();
+      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
         .run(otherTenantId, 'Other', 'other-key', new Date().toISOString());
       insertEmail({ tenant_id: otherTenantId, subject: 'Other tenant email' });
 
       const res = await request(app).get('/emails').set(auth());
-      const subjects = res.body.emails.map(e => e.subject);
+      const subjects: string[] = res.body.emails.map((e: { subject: string }) => e.subject);
       assert.ok(!subjects.includes('Other tenant email'));
     });
   });
@@ -172,7 +164,7 @@ describe('emails API', () => {
       const res = await request(app).delete(`/emails/${email.id}`).set(auth());
       assert.equal(res.status, 204);
 
-      const dbEmail = getDb().prepare('SELECT * FROM emails WHERE id = ?').get(email.id);
+      const dbEmail = databaseService.getDb().prepare('SELECT * FROM emails WHERE id = ?').get(email.id);
       assert.ok(!dbEmail, 'email should be deleted from DB');
     });
   });
@@ -187,14 +179,14 @@ describe('emails API', () => {
       const email = insertEmail({ status: 'FORWARDED', decision: 'FORWARDED' });
       const res = await request(app).post(`/emails/${email.id}/release`).set(auth());
       assert.equal(res.status, 409);
-      assert.ok(res.body.error.includes('not quarantined'));
+      assert.ok((res.body.error as string).includes('not quarantined'));
     });
 
     it('should return 500 if no eml_path stored', async () => {
       const email = insertEmail({ status: 'QUARANTINED', decision: 'QUARANTINED', eml_path: null });
       const res = await request(app).post(`/emails/${email.id}/release`).set(auth());
       assert.equal(res.status, 500);
-      assert.ok(res.body.error.includes('no stored content'));
+      assert.ok((res.body.error as string).includes('no stored content'));
     });
   });
 });

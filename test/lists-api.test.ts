@@ -1,18 +1,10 @@
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert');
-const express = require('express');
-const request = require('supertest');
-
-process.env.DB_PATH = ':memory:';
-
-delete require.cache[require.resolve('../src/config')];
-delete require.cache[require.resolve('../src/db')];
-delete require.cache[require.resolve('../src/api/auth')];
-delete require.cache[require.resolve('../src/api/routes/lists')];
-
-const { initDb, closeDb, getDb, uuid } = require('../src/db');
-const { requireTenant } = require('../src/api/auth');
-const listsRouter = require('../src/api/routes/lists');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert';
+import express from 'express';
+import request from 'supertest';
+import databaseService from '../dist/services/DatabaseService';
+import { requireTenant } from '../dist/middleware/AuthMiddleware';
+import listsRouter from '../dist/api/routes/lists';
 
 function buildApp() {
   const app = express();
@@ -22,22 +14,22 @@ function buildApp() {
 }
 
 describe('lists API (blacklist/whitelist)', () => {
-  let app;
-  let tenantId;
-  let testApiKey;
+  let app: express.Application;
+  let tenantId: string;
+  let testApiKey: string;
 
   before(() => {
-    initDb(':memory:');
-    const db = getDb();
+    databaseService.init(':memory:');
+    const db = databaseService.getDb();
     testApiKey = 'test-lists-key';
-    tenantId = uuid();
+    tenantId = databaseService.uuid();
     db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
       .run(tenantId, 'Test', testApiKey, new Date().toISOString());
     app = buildApp();
   });
 
   after(() => {
-    closeDb();
+    databaseService.close();
   });
 
   function auth() {
@@ -102,7 +94,7 @@ describe('lists API (blacklist/whitelist)', () => {
         assert.equal(delRes.status, 204);
 
         const verify = await request(app).get(BASE).set(auth());
-        const ids = verify.body.blacklist.map(e => e.id);
+        const ids: string[] = verify.body.blacklist.map((e: { id: string }) => e.id);
         assert.ok(!ids.includes(id));
       }
     });
@@ -130,9 +122,9 @@ describe('lists API (blacklist/whitelist)', () => {
     it('should not mix blacklist and whitelist entries', async () => {
       const bl = await request(app).get('/lists/blacklist').set(auth());
       const wl = await request(app).get(BASE).set(auth());
-      const blValues = bl.body.blacklist.map(e => e.value);
-      const wlValues = wl.body.whitelist.map(e => e.value);
-      const overlap = blValues.filter(v => wlValues.includes(v));
+      const blValues: string[] = bl.body.blacklist.map((e: { value: string }) => e.value);
+      const wlValues: string[] = wl.body.whitelist.map((e: { value: string }) => e.value);
+      const overlap = blValues.filter((v) => wlValues.includes(v));
       assert.equal(overlap.length, 0);
     });
   });
@@ -140,8 +132,8 @@ describe('lists API (blacklist/whitelist)', () => {
   describe('auth isolation', () => {
     it('should not show entries across tenants', async () => {
       const otherApiKey = 'other-tenant-key';
-      getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-        .run(uuid(), 'Other', otherApiKey, new Date().toISOString());
+      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
+        .run(databaseService.uuid(), 'Other', otherApiKey, new Date().toISOString());
 
       const res = await request(app).get('/lists/blacklist').set({ Authorization: `Bearer ${otherApiKey}` });
       assert.equal(res.status, 200);

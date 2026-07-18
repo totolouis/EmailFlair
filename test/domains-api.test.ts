@@ -1,19 +1,10 @@
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert');
-const express = require('express');
-const request = require('supertest');
-
-process.env.DB_PATH = ':memory:';
-
-delete require.cache[require.resolve('../src/config')];
-delete require.cache[require.resolve('../src/db')];
-delete require.cache[require.resolve('../src/dns-lookup')];
-delete require.cache[require.resolve('../src/api/auth')];
-delete require.cache[require.resolve('../src/api/routes/domains')];
-
-const { initDb, closeDb, getDb, uuid } = require('../src/db');
-const { requireTenant } = require('../src/api/auth');
-const domainsRouter = require('../src/api/routes/domains');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert';
+import express from 'express';
+import request from 'supertest';
+import databaseService from '../dist/services/DatabaseService';
+import { requireTenant } from '../dist/middleware/AuthMiddleware';
+import domainsRouter from '../dist/api/routes/domains';
 
 function buildApp() {
   const app = express();
@@ -22,14 +13,15 @@ function buildApp() {
   return app;
 }
 
-function getTestTenantId(apiKey) {
-  return getDb().prepare('SELECT id FROM tenants WHERE api_key = ?').get(apiKey).id;
+function getTestTenantId(apiKey: string): string {
+  const row = databaseService.getDb().prepare('SELECT id FROM tenants WHERE api_key = ?').get(apiKey) as { id: string } | undefined;
+  return row!.id;
 }
 
-function insertDomain(tenantId, overrides = {}) {
-  const db = getDb();
-  const row = {
-    id: uuid(),
+function insertDomain(tenantId: string, overrides: Record<string, unknown> = {}) {
+  const db = databaseService.getDb();
+  const row: Record<string, unknown> = {
+    id: databaseService.uuid(),
     tenant_id: tenantId,
     name: 'test-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.com',
     provider: 'Test',
@@ -49,22 +41,22 @@ function insertDomain(tenantId, overrides = {}) {
 }
 
 describe('domains API', () => {
-  let app;
-  let testApiKey;
-  let tenantId;
+  let app: express.Application;
+  let testApiKey: string;
+  let tenantId: string;
 
   before(() => {
-    initDb(':memory:');
-    const db = getDb();
+    databaseService.init(':memory:');
+    const db = databaseService.getDb();
     testApiKey = 'test-domains-key';
     db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(uuid(), 'Test', testApiKey, new Date().toISOString());
+      .run(databaseService.uuid(), 'Test', testApiKey, new Date().toISOString());
     tenantId = getTestTenantId(testApiKey);
     app = buildApp();
   });
 
   after(() => {
-    closeDb();
+    databaseService.close();
   });
 
   function auth() {
@@ -75,7 +67,7 @@ describe('domains API', () => {
     it('should return 400 for missing name', async () => {
       const res = await request(app).post('/domains').set(auth()).send({});
       assert.equal(res.status, 400);
-      assert.ok(res.body.error.includes('name'));
+      assert.ok((res.body.error as string).includes('name'));
     });
 
     it('should return 400 for non-string name', async () => {
@@ -86,28 +78,28 @@ describe('domains API', () => {
     it('should return 400 for invalid domain format', async () => {
       const res = await request(app).post('/domains').set(auth()).send({ name: 'not-a-valid-domain!' });
       assert.equal(res.status, 400);
-      assert.ok(res.body.error.includes('not a valid domain'));
+      assert.ok((res.body.error as string).includes('not a valid domain'));
     });
 
     it('should return 422 when MX lookup fails (domain does not exist)', async () => {
       const res = await request(app).post('/domains').set(auth()).send({ name: 'thisdomaindefinitelydoesnotexist12345.com' });
       assert.equal(res.status, 422);
-      assert.ok(res.body.error.includes('MX records'));
+      assert.ok((res.body.error as string).includes('MX records'));
     });
 
     it('should return 409 for duplicate domain', async () => {
-      const existingDomain = insertDomain(tenantId, { name: 'duplicate.com' });
+      insertDomain(tenantId, { name: 'duplicate.com' });
       const res = await request(app).post('/domains').set(auth()).send({ name: 'duplicate.com' });
       assert.equal(res.status, 409);
-      assert.ok(res.body.error.includes('already registered'));
+      assert.ok((res.body.error as string).includes('already registered'));
     });
   });
 
   describe('GET /domains', () => {
     it('should return empty list when no domains for this tenant', async () => {
       const emptyKey = 'empty-tenant-key-' + Date.now();
-      getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-        .run(uuid(), 'Empty', emptyKey, new Date().toISOString());
+      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
+        .run(databaseService.uuid(), 'Empty', emptyKey, new Date().toISOString());
       const res = await request(app).get('/domains').set({ Authorization: `Bearer ${emptyKey}` });
       assert.equal(res.status, 200);
       assert.equal(res.body.domains.length, 0);
@@ -117,18 +109,18 @@ describe('domains API', () => {
       insertDomain(tenantId, { name: 'tenant-specific-test.com' });
       const res = await request(app).get('/domains').set(auth());
       assert.equal(res.status, 200);
-      const names = res.body.domains.map(d => d.name);
+      const names: string[] = res.body.domains.map((d: { name: string }) => d.name);
       assert.ok(names.includes('tenant-specific-test.com'));
     });
 
     it('should not show other tenants domains', async () => {
-      const otherId = uuid();
-      getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
+      const otherId = databaseService.uuid();
+      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
         .run(otherId, 'Other', 'other-key-' + Date.now(), new Date().toISOString());
       insertDomain(otherId, { name: 'other-tenant-domain.com' });
 
       const res = await request(app).get('/domains').set(auth());
-      const names = res.body.domains.map(d => d.name);
+      const names: string[] = res.body.domains.map((d: { name: string }) => d.name);
       assert.ok(!names.includes('other-tenant-domain.com'));
     });
   });
@@ -150,8 +142,8 @@ describe('domains API', () => {
     });
 
     it('should return 404 for other tenant domain', async () => {
-      const otherId = uuid();
-      getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
+      const otherId = databaseService.uuid();
+      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
         .run(otherId, 'Other2', 'other-key-2', new Date().toISOString());
       const otherDomain = insertDomain(otherId, { name: 'not-my-domain.com' });
       const res = await request(app).get(`/domains/${otherDomain.name}`).set(auth());
@@ -170,13 +162,13 @@ describe('domains API', () => {
       const res = await request(app).delete(`/domains/${domain.name}`).set(auth());
       assert.equal(res.status, 204);
 
-      const deleted = getDb().prepare('SELECT * FROM domains WHERE id = ?').get(domain.id);
+      const deleted = databaseService.getDb().prepare('SELECT * FROM domains WHERE id = ?').get(domain.id);
       assert.ok(!deleted);
     });
 
     it('should return 404 for other tenant domain', async () => {
-      const otherId = uuid();
-      getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
+      const otherId = databaseService.uuid();
+      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
         .run(otherId, 'Other3', 'other-key-3', new Date().toISOString());
       const otherDomain = insertDomain(otherId, { name: 'cant-delete.com' });
       const res = await request(app).delete(`/domains/${otherDomain.name}`).set(auth());
