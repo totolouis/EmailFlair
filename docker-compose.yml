@@ -1,0 +1,48 @@
+version: "3.8"
+
+# MVP topology: a single relay service backed by embedded SQLite (see README
+# "Stack notes" for why). The PRD's target production stack — Go/Rust service,
+# PostgreSQL, Redis, object storage — is sketched below, commented out, as the
+# straightforward next step once this MVP needs to scale past one node.
+
+services:
+  relay:
+    build: .
+    image: email-security-relay:mvp
+    ports:
+      - "2525:2525"   # SMTP gateway (map to 25 on a real host/firewall)
+      - "3000:3000"   # API + dashboard
+    environment:
+      RELAY_ID: relay-01
+      RELAY_SECRET: ${RELAY_SECRET:-change-me-super-secret}
+      RELAY_HOSTNAME: ${RELAY_HOSTNAME:-mx1.emailrelay.com}
+      SMTP_PORT: 2525
+      API_PORT: 3000
+      SPAM_QUARANTINE_THRESHOLD: 5
+      SPAM_REJECT_THRESHOLD: 10
+      DB_PATH: /app/data/relay.db
+      QUARANTINE_DIR: /app/data/quarantine
+      DEFAULT_TENANT_API_KEY: ${DEFAULT_TENANT_API_KEY:-dev-tenant-key}
+    volumes:
+      - relay-data:/app/data
+    restart: unless-stopped
+
+  # --- Future V1/V2 scale-out (per PRD section 10), not required for the MVP ---
+  # postgres:
+  #   image: postgres:16
+  #   environment:
+  #     POSTGRES_DB: relay
+  #     POSTGRES_USER: relay
+  #     POSTGRES_PASSWORD: change-me
+  #   volumes:
+  #     - pg-data:/var/lib/postgresql/data
+  #
+  # redis:
+  #   image: redis:7
+  #   volumes:
+  #     - redis-data:/data
+
+volumes:
+  relay-data:
+  # pg-data:
+  # redis-data:
