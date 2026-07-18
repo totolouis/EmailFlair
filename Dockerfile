@@ -1,4 +1,5 @@
 FROM node:20-slim AS build
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
@@ -7,8 +8,7 @@ RUN npm run build
 
 FROM node:20-slim
 WORKDIR /app
-COPY package*.json ./
-RUN npm install --omit=dev
+COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY src/dashboard ./dist/dashboard
 RUN mkdir -p /app/data/quarantine /app/data/acme
