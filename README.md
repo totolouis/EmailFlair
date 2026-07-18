@@ -1,130 +1,259 @@
-# Email Security Relay — MVP Implementation
+# Email Security Relay
 
-Implementation of the PRD roadmap's **MVP milestone (0–3 months)**: a working
-SMTP relay that sits in front of an existing mail provider via an MX record
-change, with loop prevention, basic spam scoring, quarantine, multi-domain
-support, a minimal dashboard, and a REST API.
+SMTP security gateway that sits in front of any existing mail provider via MX record change ("Cloudflare for Email"). Inbound mail flows through this relay for spam filtering, loop prevention, and quarantine before being forwarded to your actual mail provider.
 
-## What's implemented
-
-| PRD section | Feature | Status |
-|---|---|---|
-| 6.1 | SMTP Gateway (STARTTLS-capable inbound SMTP) | ✅ |
-| 6.2 | Email Routing Engine | ✅ |
-| 6.3 | Transparent Forwarding (headers/body/attachments/DKIM preserved, relay headers added) | ✅ |
-| 6.4 | Loop Prevention (signed `X-Relay-ID`, hop count, `554` on loop) | ✅ |
-| 6.5 | Spam Filtering — MVP tier (blacklist/whitelist/domain reputation heuristics) | ✅ |
-| 6.5 | Spam Filtering — V2 tier (Rspamd/ClamAV/URL reputation) | 🔲 not in MVP scope |
-| 6.6 | Quarantine System (states + release/delete) | ✅ |
-| 6.7 | Dashboard (global view + per-email view) | ✅ minimal web UI |
-| 7 | Multi-tenancy | ✅ per-tenant API key + row-level isolation |
-| 5 | Domain onboarding journey (MX detection, before/after instructions, activation check) | ✅ |
-| 11 | API (`POST /domains`, `GET /domains/:name`, etc.) | ✅ |
-| 8 | Security basics (TLS support, no open relay — domain must be registered+ACTIVE, secrets via env) | ✅ baseline |
-| V2 items (DKIM signing, ARC, DLP, attachment sandboxing, MSP dashboard) | | 🔲 out of scope for this MVP, per roadmap |
-
-## Stack notes (deviation from PRD section 10)
-
-The PRD recommends Go/Rust + PostgreSQL + Redis for production. This MVP is
-implemented in **Node.js with an embedded SQLite database** instead, so it:
-
-- runs with zero external services (`npm install && npm start`),
-- is easy to read/extend end-to-end in one sitting,
-- still maps 1:1 onto the PRD's module boundaries (gateway / routing engine /
-  loop prevention / spam filter / quarantine / forwarder / API), so porting
-  the same logic to Go + Postgres + Redis later is a mechanical exercise, not
-  a redesign.
-
-`docker-compose.yml` includes commented-out Postgres/Redis services as the
-sketched next step.
-
-## Project layout
+## Architecture
 
 ```
-src/
-  config.js            env-driven config
-  db.js                SQLite schema + connection (tenants/domains/emails/lists)
-  dns-lookup.js         MX lookup + provider detection (6.2 / section 5)
-  routing-engine.js     domain -> destination resolution (6.2)
-  loop-prevention.js    signed X-Relay-ID + hop analysis (6.4)
-  spam-filter.js        MVP scoring heuristics (6.5)
-  quarantine.js         raw .eml storage for held messages (6.6)
-  forwarder.js          transparent SMTP forwarding (6.3)
-  smtp-gateway.js        smtp-server wiring — the actual gateway (6.1)
-  api/
-    auth.js             per-tenant API key middleware
-    server.js            express app assembly
-    routes/domains.js    onboarding + activation API (5, 11)
-    routes/emails.js      quarantine/log API (6.6, 6.7, 12)
-    routes/lists.js       blacklist/whitelist CRUD (6.5)
-  dashboard/index.html   minimal dark-mode dashboard (6.7)
-scripts/test-send.js     local smoke test (seeds a fake domain, sends mail)
+   ┌──────────┐    SMTP     ┌──────────────────────────────────────────────────┐    SMTP     ┌──────────────┐
+   │  Sender   │ ──────────▶│  smtp-server (port 2525)                          │ ──────────▶│  Destination │
+   │  MTA      │            │  ↓  onRcptTo → RoutingEngine (domain lookup)     │            │  MX (Gmail,  │
+   └──────────┘             │  ↓  onData   → LoopPrevention → SpamFilter       │            │  Outlook...) │
+                            │                → Quarantine → Forwarder          │            └──────────────┘
+                            └──────────────────────────────────────────────────┘
+                                                    │
+                                                    │ REST API (port 3000)
+                                                    ▼
+                                          ┌────────────────────┐
+                                          │  Express.js        │
+                                          │  /domains, /emails │
+                                          │  /lists, dashboard │
+                                          └────────────────────┘
 ```
 
-## Running it
+Built with **SOLID** principles: single-responsibility services, dependency injection via constructor/export, repository pattern for data access, and interface segregation through TypeScript interfaces.
+
+## What you need before starting
+
+Running this relay in production requires three things you must set up yourself:
+
+1. **A server** with a public IP and port 25 (SMTP) accessible from the internet. You cannot run this behind a residential ISP (they block port 25). Use a VPS from DigitalOcean, Linode, AWS, etc.
+
+2. **A domain name** that you own and control DNS for. This domain serves as your relay hostname (what you put in `RELAY_HOSTNAME`). For example, if you own `emailrelay.com`, you'd set `RELAY_HOSTNAME=mx1.emailrelay.com` and create an **A record** pointing `mx1.emailrelay.com` to your server's public IP.
+
+3. **Your customers' domains** — each domain you want to protect (e.g. `customer.com`) must be registered via the API and have its MX record updated to point at your relay hostname (see [Domain onboarding flow](#domain-onboarding-flow) below).
+
+If you just want to try the app locally for development, skip the server and domain — it runs fine on localhost for testing.
+
+## Quick start (local dev)
 
 ```bash
 npm install
-cp .env.example .env      # edit RELAY_HOSTNAME / RELAY_SECRET for your setup
-npm start
+cp .env.example .env        # edit RELAY_SECRET for your environment
+npm run build               # compile TypeScript → dist/
+npm start                   # starts SMTP gateway + API + dashboard
 ```
 
-This starts:
-- the SMTP gateway on `SMTP_PORT` (default `2525`; put behind port 25 in production),
-- the API + dashboard on `API_PORT` (default `3000`).
+On first boot a default tenant is seeded. The API key is shown in the console output, and also available via `DEFAULT_TENANT_API_KEY` (default: `dev-tenant-key`).
 
-On first boot a default tenant is seeded; its API key is printed to the
-console (also in `.env` as `DEFAULT_TENANT_API_KEY`). Paste that key into the
-dashboard's "Connect" box, or use it as a Bearer token against the API.
+Use that key as a Bearer token in API requests, or paste it into the dashboard's "Connect" box at `http://localhost:3000/`.
 
-### Docker
+## Configuration
+
+All configuration is via environment variables (see `.env.example`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `RELAY_ID` | `relay-01` | Identity of this relay node, used in headers |
+| `RELAY_SECRET` | `dev-secret-do-not-use-in-prod` | HMAC key for loop detection signatures (min 8 chars, not `change-me`) |
+| `RELAY_HOSTNAME` | `mx1.emailrelay.com` | Public hostname users point their MX record to |
+| `SMTP_PORT` | `2525` | Inbound SMTP port (map to 25 behind a firewall in production) |
+| `API_PORT` | `3000` | REST API + dashboard HTTP port |
+| `SPAM_QUARANTINE_THRESHOLD` | `5` | Messages scoring ≥ this are quarantined (held for review) |
+| `SPAM_REJECT_THRESHOLD` | `10` | Messages scoring ≥ this are rejected outright (554) |
+| `DB_PATH` | `./data/relay.db` | SQLite database file path |
+| `QUARANTINE_DIR` | `./data/quarantine` | Directory for quarantined `.eml` files |
+| `DEFAULT_TENANT_NAME` | `Default Tenant` | Name of the auto-seeded tenant |
+| `DEFAULT_TENANT_API_KEY` | `dev-tenant-key` | API key for the auto-seeded tenant |
+
+## Docker
 
 ```bash
 docker compose up --build
 ```
 
-### Onboarding a domain (PRD section 5 flow)
+The `Dockerfile` compiles TypeScript, copies the dashboard, and runs `npm start`. The `docker-compose.yml` mounts a persistent volume for the SQLite database and quarantine files.
+
+## Domain onboarding flow
+
+### 1. Register a domain
 
 ```bash
 curl -X POST http://localhost:3000/domains \
   -H "Authorization: Bearer dev-tenant-key" \
   -H "Content-Type: application/json" \
-  -d '{"name":"company.com"}'
+  -d '{"name":"yourcompany.com"}'
 ```
 
-Returns the detected provider and the exact MX before/after values to show
-the user. Once they've updated DNS and it has propagated:
+The relay looks up your domain's current MX records, detects the mail provider (Google Workspace, Microsoft 365, ProtonMail, OVH, etc.), and returns the current MX value along with instructions to update DNS.
+
+### 2. Update your MX record
+
+Change your domain's MX record to point to `RELAY_HOSTNAME` (default `mx1.emailrelay.com`). Keep TTL low during propagation.
+
+### 3. Activate the domain
 
 ```bash
-curl -X POST http://localhost:3000/domains/company.com/activate \
+curl -X POST http://localhost:3000/domains/yourcompany.com/activate \
   -H "Authorization: Bearer dev-tenant-key"
 ```
 
-which re-checks DNS and flips the domain to `ACTIVE`, at which point the SMTP
-gateway will accept mail for it and forward to the destination captured at
-onboarding time.
+The relay re-checks DNS. If the MX record now points to the relay, the domain is set to `ACTIVE` and begins accepting mail.
 
-### Smoke test
+## REST API
 
-With the server running in one terminal:
+All endpoints (except `/health` and `/`) require `Authorization: Bearer <api-key>` header.
 
-```bash
-npm run test:send
+### Domains
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/domains` | Register a new domain (triggers MX lookup) |
+| `GET` | `/domains` | List all domains for this tenant |
+| `GET` | `/domains/:name` | Get domain details + MX instructions |
+| `POST` | `/domains/:name/activate` | Verify DNS propagation and activate domain |
+| `DELETE` | `/domains/:name` | Remove a domain |
+
+### Emails
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/emails` | List emails (supports `?status=`, `?domain=`, `?limit=`) |
+| `GET` | `/emails/summary` | Aggregated counts by status + active domain count |
+| `GET` | `/emails/:id` | Get email details (includes parsed headers) |
+| `POST` | `/emails/:id/release` | Release a quarantined email (forward to destination) |
+| `DELETE` | `/emails/:id` | Delete an email record (cleans up quarantine file) |
+
+### Lists (blacklist/whitelist)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/lists/:table` | List entries (`:table` = `blacklist` or `whitelist`) |
+| `POST` | `/lists/:table` | Add entry (`{"type": "ip"|"domain", "value": "..."}`) |
+| `DELETE` | `/lists/:table/:id` | Remove an entry |
+
+Blacklisted senders add +10 to spam score. Whitelisted senders bypass scoring entirely (score = 0).
+
+### System
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Returns `{"ok": true}` |
+| `GET` | `/` | Dashboard UI (static HTML) |
+
+## Spam scoring
+
+The MVP spam filter uses heuristic scoring:
+
+| Criteria | Points |
+|---|---|
+| Sender IP is blacklisted | +10 |
+| Sender domain is blacklisted | +10 |
+| Suspicious keyword in subject | +2 each |
+| Malformed sender address | +3 |
+| Message has attachments | +0.5 |
+| Sender is whitelisted | score = 0 (overrides all) |
+
+Thresholds are configurable via `SPAM_QUARANTINE_THRESHOLD` (default 5) and `SPAM_REJECT_THRESHOLD` (default 10).
+
+## Dashboard
+
+A minimal dark-mode dashboard is served at `/`. Paste your API key in the "Connect" box to view domains, quarantined emails, and release/delete messages.
+
+## Development
+
+### Project structure
+
+```
+src/
+  config.ts                    Environment-driven configuration
+  interfaces/                  TypeScript interfaces for all domain objects
+  services/
+    DatabaseService.ts         SQLite connection + schema migrations
+    DatabaseMigrations.ts      Table creation + indexes
+    DnsLookupService.ts        MX lookup + provider detection
+    RoutingEngineService.ts    Domain → destination MX resolution
+    LoopPreventionService.ts   Signed headers + hop count analysis
+    SpamFilterService.ts       Heuristic scoring (blacklist/whitelist/keywords)
+    QuarantineService.ts       .eml file storage + retrieval
+    ForwarderService.ts        Nodemailer-based SMTP forwarding
+  repositories/
+    TenantRepository.ts        Tenant data access (API key lookup)
+    DomainRepository.ts        Domain CRUD (with tenant isolation)
+    EmailRepository.ts         Email log CRUD + filtering
+    ListRepository.ts          Blacklist/whitelist CRUD
+  middleware/
+    AuthMiddleware.ts          Bearer token → tenant resolution
+  api/
+    server.ts                  Express app assembly
+    routes/
+      domains.ts               Domain onboarding + activation endpoints
+      emails.ts                Email listing, release, delete
+      lists.ts                 Blacklist/whitelist CRUD
+  dashboard/index.html         Minimal dark-mode web UI
+  smtp-gateway.ts              smtp-server wiring (onRcptTo, onData pipeline)
+  index.ts                     Entry point: graceful startup + shutdown
 ```
 
-This seeds a local fake domain (no real DNS needed), sends a normal message
-through the gateway, then sends a second message that already carries a
-valid signed `X-Relay-ID` — demonstrating the `554 Mail loop detected`
-response from section 6.4.
+### Commands
 
-## Known MVP limitations (intentional, matches roadmap scope)
+```bash
+npm run build          # Compile TypeScript to dist/
+npm run typecheck      # Type-check only (no emit)
+npm start              # Run from compiled dist/
+npm run dev            # Build + run with --watch for development
+npm test               # Run all tests (tsx --test)
+npm run test:send      # Smoke test: send a normal + a looped message
+```
 
-- Spam scoring is heuristic (blacklist/whitelist/keyword), not ML/Bayesian —
-  Rspamd/ClamAV integration is explicitly V2 in the PRD.
-- No DKIM re-signing, ARC, or attachment sandboxing — explicitly V2.
-- Single-node; no HA/clustering — not required for MVP per section 15's
-  success definition (10-minute setup, 99.9% delivery, works with any SMTP
-  provider), which this implementation satisfies for a single relay node.
-- STARTTLS is supported by the underlying `smtp-server`/`nodemailer`
-  libraries but certificate provisioning (Let's Encrypt, etc.) is left to the
-  deployment environment, not hardcoded here.
+### Adding a test
+
+Tests use Node's built-in `node:test` runner with `tsx`. Test files live in `test/*.test.ts`:
+
+```ts
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import myService from '../dist/services/MyService';
+
+describe('MyService', () => {
+  it('should do the thing', () => {
+    assert.equal(myService.doSomething(), 'expected');
+  });
+});
+```
+
+Tests import from `dist/` (compiled output), not `src/` (source), to verify the actual built modules.
+
+### Adding a mail provider
+
+Edit `PROVIDER_PATTERNS` in `src/services/DnsLookupService.ts`:
+
+```ts
+{ pattern: /\.mail\.newprovider\.com$/i, provider: 'NewProvider' },
+```
+
+### TypeScript notes
+
+- TypeScript 7 requires `moduleResolution: "node16"` (not `"node"`).
+- With `module: "Node16"` and no `"type": "module"` in package.json, output is CommonJS.
+- `import` is hoisted above `process.env` assignments; use `require()` for modules that depend on env vars at load time.
+- When destructuring methods from service singletons, call them as `instance.method()` (not `const { method } = instance`) to preserve `this` context.
+
+## Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| `RELAY_SECRET must be at least 8 characters` | Change `RELAY_SECRET` from `change-me` to something unique |
+| `No such domain configured on this relay` | The recipient domain hasn't been registered via `POST /domains` or is not `ACTIVE` |
+| `Mail loop detected` | The message already carries this relay's signed header — check your destination MX isn't pointing back at this relay |
+| `Could not resolve MX records` | The domain doesn't exist or has no mail configured — verify the domain name |
+| Connection refused on SMTP port | Ensure `npm start` is running and the port isn't firewalled |
+| Dashboard shows "Not connected" | Paste the default tenant API key (shown at startup) into the Connect box |
+
+## Known MVP limitations
+
+- Spam filtering is heuristic (blacklist/whitelist/keywords), not ML/Bayesian. Rspamd/ClamAV integration is planned for V2.
+- No DKIM re-signing, ARC, or attachment sandboxing (V2 scope).
+- Single-node only; no HA/clustering.
+- TLS (STARTTLS) is supported by the underlying libraries but certificate provisioning is left to the deployment environment.
+- SQLite is embedded (no external Postgres). The PRD target stack (Go/Rust, Postgres, Redis) is shown as commented-out services in `docker-compose.yml` for future scaling.
