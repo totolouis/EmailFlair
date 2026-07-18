@@ -18,9 +18,20 @@ async function main(): Promise<void> {
 
   if (config.tlsAcmeEnabled) {
     acmeManager = new AcmeManager(config);
-    await acmeManager.init();
-    tlsOptions = acmeManager.getServerOptions();
-    console.log(`[tls] SMTP STARTTLS ${tlsOptions ? 'enabled' : 'not available — will retry'}`);
+
+    try {
+      await acmeManager.init();
+      tlsOptions = acmeManager.getServerOptions();
+    } catch (err) {
+      console.error('[tls] ACME init failed, will retry in background:', (err as Error).message);
+      acmeManager.startRetry(30_000);
+    }
+
+    if (tlsOptions) {
+      console.log('[tls] SMTP STARTTLS enabled');
+    } else {
+      console.log('[tls] SMTP STARTTLS not available — ACME will retry in background');
+    }
   }
 
   /* ---------- SMTP gateway ---------- */
@@ -32,24 +43,31 @@ async function main(): Promise<void> {
 
   /* On cert renewal, hot-reload the SMTP server */
   if (acmeManager) {
-    acmeManager.on('renew', (newCert: CertFiles) => {
-      console.log('[tls] Cert renewed, restarting SMTP server with new cert...');
+    const renewHandler = (newCert: CertFiles | undefined) => {
+      if (!newCert) return;
+      console.log('[tls] Cert obtained/renewed, restarting SMTP server with new cert...');
       const oldPort = config.smtpPort;
       smtpServer.close(() => {
         smtpServer = buildServer(newCert);
         smtpServer.listen(oldPort, () => {
-          console.log(`[smtp-gateway] restarted on port ${oldPort} with renewed cert`);
+          console.log(`[smtp-gateway] restarted on port ${oldPort} with TLS cert`);
         });
         smtpServer.on('error', (err: Error) => console.error('[smtp-gateway] error:', err.message));
       });
-    });
-    acmeManager.scheduleRenewal();
+    };
+
+    acmeManager.on('renew', renewHandler);
+
+    /* If ACME succeeded on init, schedule normal renewal */
+    if (tlsOptions) {
+      acmeManager.scheduleRenewal();
+    }
   }
 
   /* ---------- API + dashboard ---------- */
   const apiApp = buildApiApp();
 
-  /* ACME HTTP-01 challenge handler */
+  /* ACME HTTP-01 challenge handler (mounted regardless of ACME status) */
   if (acmeManager) {
     apiApp.get('/.well-known/acme-challenge/:token', (req, res) => {
       const token = (req.params as Record<string, string>).token;
@@ -72,7 +90,10 @@ async function main(): Promise<void> {
   /* ---------- Graceful shutdown ---------- */
   function shutdown(signal: string): void {
     console.log(`\n[${signal}] Shutting down gracefully...`);
-    if (acmeManager) acmeManager.stopRenewal();
+    if (acmeManager) {
+      acmeManager.stopRenewal();
+      acmeManager.stopRetry();
+    }
     smtpServer.close(() => {
       apiServer.close(() => {
         process.exit(0);

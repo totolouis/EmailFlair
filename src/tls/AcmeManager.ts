@@ -31,6 +31,7 @@ export class AcmeManager extends EventEmitter {
   private challenges = new Map<string, string>();
   private cert: CertFiles | null = null;
   private renewalTimer: ReturnType<typeof setInterval> | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(config: IConfig) {
     super();
@@ -146,6 +147,42 @@ export class AcmeManager extends EventEmitter {
     if (this.renewalTimer) {
       clearInterval(this.renewalTimer);
       this.renewalTimer = null;
+    }
+  }
+
+  startRetry(initialDelayMs = 30_000): void {
+    const delays = [initialDelayMs, 60_000, 120_000, 300_000, 600_000];
+    let attempt = 0;
+
+    const tryRetry = async (): Promise<void> => {
+      if (this.cert) return;
+      try {
+        console.log(`[tls] ACME retry attempt ${attempt + 1}/${delays.length}...`);
+        await this.init();
+        if (this.cert) {
+          console.log('[tls] ACME provisioning succeeded on retry');
+          this.scheduleRenewal();
+          this.emit('renew', this.cert);
+          return;
+        }
+      } catch (err) {
+        console.error(`[tls] ACME retry ${attempt + 1} failed:`, (err as Error).message);
+      }
+      attempt++;
+      if (attempt < delays.length && !this.cert) {
+        this.retryTimer = setTimeout(tryRetry, delays[attempt]).unref();
+      } else if (!this.cert) {
+        console.log('[tls] All ACME retries exhausted. TLS will not be available.');
+      }
+    };
+
+    this.retryTimer = setTimeout(tryRetry, delays[0]).unref();
+  }
+
+  stopRetry(): void {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
     }
   }
 }
