@@ -4,6 +4,19 @@ import { CertStore, type CertFiles } from './CertStore';
 
 let acmeModule: typeof import('acme-client') | null = null;
 
+const DEBUG = process.env['TLS_DEBUG'] === '1';
+
+function debug(label: string, msg: string, data?: Record<string, unknown>): void {
+  if (DEBUG) {
+    const prefix = `[tls] [${label}]`;
+    if (data) {
+      console.log(`${prefix} ${msg}`, JSON.stringify(data, null, 2));
+    } else {
+      console.log(`${prefix} ${msg}`);
+    }
+  }
+}
+
 async function getAcme(): Promise<typeof import('acme-client')> {
   if (!acmeModule) {
     acmeModule = await import('acme-client');
@@ -64,6 +77,7 @@ export class AcmeManager extends EventEmitter {
       }
     }
     console.log(`[tls] No valid cert found for ${this.domain}, provisioning via Let's Encrypt...`);
+    debug('init', 'Starting ACME provisioning');
     await this.provision();
   }
 
@@ -73,13 +87,16 @@ export class AcmeManager extends EventEmitter {
     const directoryUrl = this.staging
       ? acme.directory.letsencrypt.staging
       : acme.directory.letsencrypt.production;
+    debug('provision', 'Using ACME directory', { directoryUrl, staging: this.staging });
 
     let accountKey: Buffer;
     if (CertStore.hasAccountKey(this.storage)) {
       accountKey = CertStore.loadAccountKey(this.storage);
+      debug('provision', 'Using existing account key');
     } else {
       accountKey = await generateAccountKey();
       CertStore.saveAccountKey(this.storage, accountKey);
+      debug('provision', 'Generated new account key');
     }
 
     const client = new acme.Client({
@@ -89,46 +106,89 @@ export class AcmeManager extends EventEmitter {
       backoffMin: 3000,
       backoffMax: 15000,
     });
+    debug('provision', 'ACME client created');
 
     try {
-      client.getAccountUrl();
+      const accountUrl = client.getAccountUrl();
+      debug('provision', 'Got existing account URL', { accountUrl });
     } catch {
+      debug('provision', 'No existing account, creating new one');
       await client.createAccount({
         termsOfServiceAgreed: true,
         contact: [`mailto:${this.email}`],
       });
+      debug('provision', 'Account created');
     }
 
     const { key: csrKey, csr } = await generateCsr(this.domain);
+    debug('provision', 'CSR generated', { commonName: this.domain });
 
     /* Manual ACME flow (instead of client.auto()) because auto() calls
        verifyHttpChallenge internally, which does an HTTP GET from within
        the container to the public domain. Docker cannot hairpin NAT back
        to itself, so the internal verification always fails with 404.
-       By doing it manually, we        skip the internal verify and let Let's
+       By doing it manually, we skip the internal verify and let Let's
        Encrypt's servers verify the challenge from the internet (which
        properly reaches Traefik → relay). */
-    const order = await client.createOrder({ identifiers: [{ type: 'dns', value: this.domain }] }) as { authorizations: string[]; finalize: string; url: string; status: string; certificate: string };
+
+    debug('provision', 'Creating order', { identifiers: [{ type: 'dns', value: this.domain }] });
+    let order: { authorizations: string[]; finalize: string; url: string; status: string; certificate: string };
+    try {
+      order = await client.createOrder({ identifiers: [{ type: 'dns', value: this.domain }] }) as typeof order;
+      debug('provision', 'Order created', {
+        orderUrl: order.url,
+        status: order.status,
+        authorizations: order.authorizations,
+        finalize: order.finalize,
+      });
+    } catch (err) {
+      debug('provision', 'createOrder failed', { error: (err as Error).message, stack: (err as Error).stack });
+      throw err;
+    }
+
+    debug('provision', 'Getting authorizations');
     const authorizations = await client.getAuthorizations(order);
+    debug('provision', 'Got authorizations', { count: authorizations.length });
 
     for (const raw of authorizations) {
-      const authz = raw as { challenges: Array<{ type: string; token: string; url: string }>; identifier?: { value: string }; status?: string };
+      const authz = raw as { challenges: Array<{ type: string; token: string; url: string }>; identifier?: { value: string }; status?: string; url: string };
+      debug('authz', 'Processing authorization', {
+        identifier: authz.identifier?.value,
+        status: authz.status,
+        url: authz.url,
+        challengeTypes: (authz.challenges || []).map(c => c.type),
+      });
+
       const challenge = (authz.challenges || []).find((c) => c.type === 'http-01');
       if (!challenge) {
         throw new Error(`No HTTP-01 challenge available for ${authz.identifier?.value || 'unknown'}`);
       }
+      debug('challenge', 'Found HTTP-01 challenge', { token: challenge.token, url: challenge.url });
+
       const keyAuthorization = await client.getChallengeKeyAuthorization(challenge);
+      debug('challenge', 'Computed keyAuthorization', { keyAuthorization });
       this.challenges.set(challenge.token, keyAuthorization);
+
+      debug('challenge', 'Completing challenge');
       await client.completeChallenge(challenge);
+      debug('challenge', 'Challenge completed, waiting for valid status');
+
       await client.waitForValidStatus(authz);
+      debug('challenge', 'Authorization is now valid', { identifier: authz.identifier?.value });
+
       this.challenges.delete(challenge.token);
     }
 
+    debug('provision', 'Finalizing order', { orderUrl: order.url, finalizeUrl: order.finalize });
     await client.finalizeOrder(order, csr);
+    debug('provision', 'Order finalized, fetching certificate');
+
     const certPem = await client.getCertificate(order);
+    debug('provision', 'Certificate received', { certLength: certPem.length });
 
     const chain = acme.forge.splitPemChain(certPem.toString());
     const ca = chain.length > 1 ? chain.slice(1).join('\n') : undefined;
+    debug('provision', 'Certificate chain parsed', { certs: chain.length, hasCa: !!ca });
 
     this.cert = { key: csrKey, cert: certPem };
 
