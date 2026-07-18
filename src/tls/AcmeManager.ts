@@ -108,9 +108,8 @@ export class AcmeManager extends EventEmitter {
        By doing it manually, we        skip the internal verify and let Let's
        Encrypt's servers verify the challenge from the internet (which
        properly reaches Traefik → relay). */
-    const identifiers = [{ type: 'dns' as const, value: this.domain }];
-    const orderUrl = await client.createOrder(identifiers);
-    const authorizations = await client.getAuthorizations(orderUrl);
+    const order = await client.createOrder({ identifiers: [{ type: 'dns', value: this.domain }] }) as { authorizations: string[]; finalize: string; url: string; status: string; certificate: string };
+    const authorizations = await client.getAuthorizations(order);
 
     for (const raw of authorizations) {
       const authz = raw as { challenges: Array<{ type: string; token: string; url: string }>; identifier?: { value: string }; status?: string };
@@ -125,8 +124,8 @@ export class AcmeManager extends EventEmitter {
       this.challenges.delete(challenge.token);
     }
 
-    await client.finalizeOrder(orderUrl, csr);
-    const certPem = await client.getCertificate(orderUrl);
+    await client.finalizeOrder(order, csr);
+    const certPem = await client.getCertificate(order);
 
     const chain = acme.forge.splitPemChain(certPem.toString());
     const ca = chain.length > 1 ? chain.slice(1).join('\n') : undefined;
