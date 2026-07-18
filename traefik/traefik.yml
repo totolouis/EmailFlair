@@ -15,10 +15,6 @@ certificatesResolvers:
       storage: /certs/acme.json
       tlsChallenge: {}
 
-providers:
-  file:
-    filename: /etc/traefik/traefik.yml
-
 tcp:
   routers:
     smtp-passthrough:

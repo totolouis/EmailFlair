@@ -23,9 +23,11 @@ services:
   relay:
     build: .
     image: email-security-relay:latest
-    ports:
-      - "2525:2525"   # SMTP backend for Traefik
-      - "3000:3000"   # API backend for Traefik
+    # Ports are NOT exposed to the host — Traefik reaches the relay via
+    # internal Docker networking (relay:2525, relay:3000 in traefik.yml).
+    # Uncomment below for direct testing (localhost:2525 / localhost:3000):
+    # ports:
+    #   - "2525:2525"
     environment:
       RELAY_ID: ${RELAY_ID:-relay-01}
       RELAY_SECRET: ${RELAY_SECRET}
