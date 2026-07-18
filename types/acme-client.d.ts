@@ -43,6 +43,9 @@ declare module 'acme-client' {
     finalizeOrder(order: unknown, csr: Buffer): Promise<unknown>;
     getCertificate(order: unknown, preferredChain?: string): Promise<Buffer>;
     deactivateAuthorization(authz: unknown): Promise<void>;
+    getChallengeKeyAuthorization(challenge: { type: string; token: string; url: string }): Promise<string>;
+    completeChallenge(challenge: { type: string; token: string; url: string }): Promise<unknown>;
+    waitForValidStatus(authz: { challenges: Array<{ type: string; token: string; url: string }>; identifier?: { value: string }; status?: string }): Promise<unknown>;
   }
 
   export const directory: {

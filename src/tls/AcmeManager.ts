@@ -100,18 +100,33 @@ export class AcmeManager extends EventEmitter {
     }
 
     const { key: csrKey, csr } = await generateCsr(this.domain);
-    const certPem = await client.auto({
-      csr,
-      email: this.email,
-      termsOfServiceAgreed: true,
-      challengePriority: ['http-01'],
-      challengeCreateFn: async (_authz, challenge, keyAuthorization) => {
-        this.challenges.set(challenge.token, keyAuthorization);
-      },
-      challengeRemoveFn: async (_authz, challenge, _keyAuthorization) => {
-        this.challenges.delete(challenge.token);
-      },
-    });
+
+    /* Manual ACME flow (instead of client.auto()) because auto() calls
+       verifyHttpChallenge internally, which does an HTTP GET from within
+       the container to the public domain. Docker cannot hairpin NAT back
+       to itself, so the internal verification always fails with 404.
+       By doing it manually, we        skip the internal verify and let Let's
+       Encrypt's servers verify the challenge from the internet (which
+       properly reaches Traefik → relay). */
+    const identifiers = [{ type: 'dns' as const, value: this.domain }];
+    const orderUrl = await client.createOrder(identifiers);
+    const authorizations = await client.getAuthorizations(orderUrl);
+
+    for (const raw of authorizations) {
+      const authz = raw as { challenges: Array<{ type: string; token: string; url: string }>; identifier?: { value: string }; status?: string };
+      const challenge = (authz.challenges || []).find((c) => c.type === 'http-01');
+      if (!challenge) {
+        throw new Error(`No HTTP-01 challenge available for ${authz.identifier?.value || 'unknown'}`);
+      }
+      const keyAuthorization = await client.getChallengeKeyAuthorization(challenge);
+      this.challenges.set(challenge.token, keyAuthorization);
+      await client.completeChallenge(challenge);
+      await client.waitForValidStatus(authz);
+      this.challenges.delete(challenge.token);
+    }
+
+    await client.finalizeOrder(orderUrl, csr);
+    const certPem = await client.getCertificate(orderUrl);
 
     const chain = acme.forge.splitPemChain(certPem.toString());
     const ca = chain.length > 1 ? chain.slice(1).join('\n') : undefined;
