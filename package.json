@@ -2,11 +2,14 @@
   "name": "email-security-relay",
   "version": "1.0.0",
   "description": "Email Security Relay — SMTP security gateway that sits in front of any existing mail provider via MX record change (\"Cloudflare for Email\"). MVP implementation of the PRD roadmap.",
-  "main": "src/index.js",
+  "main": "dist/index.js",
   "private": true,
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node src/index.js",
+    "build": "tsc && cp -r src/dashboard dist/dashboard",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/index.js",
+    "dev": "node --watch dist/index.js",
+    "test": "node --test test/*.test.js",
     "test:send": "node scripts/test-send.js"
   },
   "dependencies": {
@@ -20,6 +23,15 @@
     "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "supertest": "^7.2.2"
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^26.1.1",
+    "@types/nodemailer": "^8.0.1",
+    "@types/smtp-server": "^3.5.13",
+    "@types/uuid": "^10.0.0",
+    "supertest": "^7.2.2",
+    "typescript": "^7.0.2"
   }
 }
