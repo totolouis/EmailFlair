@@ -1,0 +1,56 @@
+tcp:
+  routers:
+    smtp-passthrough:
+      entryPoints:
+        - smtp
+      rule: "HostSNI(`*`)"
+      service: relay-smtp
+    smtps-termination:
+      entryPoints:
+        - smtps
+      rule: "HostSNI(`*`)"
+      tls:
+        certResolver: letsencrypt
+      service: relay-smtp
+
+  services:
+    relay-smtp:
+      loadBalancer:
+        servers:
+          - address: "relay:2525"
+
+http:
+  routers:
+    relay-api-https:
+      entryPoints:
+        - websecure
+      rule: "Host(`${RELAY_HOSTNAME}`)"
+      tls:
+        certResolver: letsencrypt
+      service: relay-api
+
+    relay-acme-challenge:
+      entryPoints:
+        - web
+      rule: "Host(`${RELAY_HOSTNAME}`) && PathPrefix(`/.well-known/acme-challenge/`)"
+      service: relay-api
+
+    relay-http-redirect:
+      entryPoints:
+        - web
+      rule: "HostRegexp(`{host:.+}`)"
+      middlewares:
+        - redirect-https
+      service: relay-api
+
+  middlewares:
+    redirect-https:
+      redirectScheme:
+        scheme: https
+        port: 443
+
+  services:
+    relay-api:
+      loadBalancer:
+        servers:
+          - address: "relay:3000"

@@ -1,14 +1,18 @@
-FROM node:20-slim
-
+FROM node:20-slim AS build
 WORKDIR /app
-
-COPY package.json ./
-RUN npm install --omit=dev
-
+COPY package*.json ./
+RUN npm install
 COPY . .
+RUN npm run build
 
-RUN mkdir -p /app/data/quarantine
+FROM node:20-slim
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --omit=dev
+COPY --from=build /app/dist ./dist
+COPY src/dashboard ./dist/dashboard
+RUN mkdir -p /app/data/quarantine /app/data/acme
 
 EXPOSE 2525 3000
 
-CMD ["node", "src/index.js"]
+CMD ["node", "dist/index.js"]

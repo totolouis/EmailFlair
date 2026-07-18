@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.git/
+*.md
+test/
+scripts/
+traefik/
+docker-compose.yml
+.gitignore

@@ -13,6 +13,7 @@
     "test:send": "node scripts/test-send.js"
   },
   "dependencies": {
+    "acme-client": "^5.4.0",
     "better-sqlite3": "^12.11.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",

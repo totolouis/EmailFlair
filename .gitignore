@@ -3,3 +3,5 @@ data/
 .env
 *.log
 dist/
+traefik-data/
+

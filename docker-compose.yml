@@ -1,48 +1,51 @@
 version: "3.8"
 
-# MVP topology: a single relay service backed by embedded SQLite (see README
-# "Stack notes" for why). The PRD's target production stack — Go/Rust service,
-# PostgreSQL, Redis, object storage — is sketched below, commented out, as the
-# straightforward next step once this MVP needs to scale past one node.
+volumes:
+  relay-data:
+  traefik-data:
 
 services:
+  traefik:
+    image: traefik:v3.2
+    command:
+      - "--configFile=/etc/traefik/traefik.yml"
+    ports:
+      - "25:25"     # SMTP (plain TCP passthrough, relay handles STARTTLS)
+      - "465:465"   # SMTPS (TLS termination via ACME cert)
+      - "80:80"     # HTTP (redirects to HTTPS + ACME challenge routing)
+      - "443:443"   # HTTPS API + dashboard
+    environment:
+      - TLS_ACME_EMAIL=${TLS_ACME_EMAIL}
+      - RELAY_HOSTNAME=${RELAY_HOSTNAME}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-data:/certs
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+    restart: unless-stopped
+
   relay:
     build: .
-    image: email-security-relay:mvp
+    image: email-security-relay:latest
     ports:
-      - "2525:2525"   # SMTP gateway (map to 25 on a real host/firewall)
-      - "3000:3000"   # API + dashboard
+      - "2525:2525"   # SMTP backend for Traefik
+      - "3000:3000"   # API backend for Traefik
     environment:
-      RELAY_ID: relay-01
-      RELAY_SECRET: ${RELAY_SECRET:-change-me-super-secret}
-      RELAY_HOSTNAME: ${RELAY_HOSTNAME:-mx1.emailrelay.com}
+      RELAY_ID: ${RELAY_ID:-relay-01}
+      RELAY_SECRET: ${RELAY_SECRET}
+      RELAY_HOSTNAME: ${RELAY_HOSTNAME}
       SMTP_PORT: 2525
       API_PORT: 3000
-      SPAM_QUARANTINE_THRESHOLD: 5
-      SPAM_REJECT_THRESHOLD: 10
+      TLS_ACME_ENABLED: "true"
+      TLS_ACME_EMAIL: ${TLS_ACME_EMAIL}
+      TLS_ACME_STORAGE: /app/data/acme
+      SPAM_QUARANTINE_THRESHOLD: ${SPAM_QUARANTINE_THRESHOLD:-5}
+      SPAM_REJECT_THRESHOLD: ${SPAM_REJECT_THRESHOLD:-10}
       DB_PATH: /app/data/relay.db
       QUARANTINE_DIR: /app/data/quarantine
       DEFAULT_TENANT_API_KEY: ${DEFAULT_TENANT_API_KEY:-dev-tenant-key}
     volumes:
       - relay-data:/app/data
     restart: unless-stopped
-
-  # --- Future V1/V2 scale-out (per PRD section 10), not required for the MVP ---
-  # postgres:
-  #   image: postgres:16
-  #   environment:
-  #     POSTGRES_DB: relay
-  #     POSTGRES_USER: relay
-  #     POSTGRES_PASSWORD: change-me
-  #   volumes:
-  #     - pg-data:/var/lib/postgresql/data
-  #
-  # redis:
-  #   image: redis:7
-  #   volumes:
-  #     - redis-data:/data
-
-volumes:
-  relay-data:
-  # pg-data:
-  # redis-data:
+    depends_on:
+      - traefik

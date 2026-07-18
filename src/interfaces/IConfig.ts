@@ -10,4 +10,8 @@ export interface IConfig {
   quarantineDir: string;
   defaultTenantName: string;
   defaultTenantApiKey: string;
+  smtpTlsPort: number;
+  tlsAcmeEnabled: boolean;
+  tlsAcmeEmail: string;
+  tlsAcmeStorage: string;
 }

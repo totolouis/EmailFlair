@@ -1,0 +1,22 @@
+entryPoints:
+  web:
+    address: :80
+  websecure:
+    address: :443
+  smtp:
+    address: :25
+  smtps:
+    address: :465
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: "${TLS_ACME_EMAIL}"
+      storage: /certs/acme.json
+      tlsChallenge: {}
+
+providers:
+  docker:
+    exposedByDefault: false
+  file:
+    filename: /etc/traefik/dynamic.yml
