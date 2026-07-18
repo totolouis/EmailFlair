@@ -44,10 +44,14 @@ function buildServer() {
       const recipientDomain = address.address.split('@')[1];
       const domainRow = resolveDestination(recipientDomain);
       if (!domainRow) {
-        return callback(new Error(`550 5.1.1 No such domain configured on this relay: ${recipientDomain}`));
+        const err = new Error(`No such domain configured on this relay: ${recipientDomain}`);
+        err.responseCode = 550;
+        return callback(err);
       }
       if (domainRow.status !== 'ACTIVE') {
-        return callback(new Error(`451 4.3.0 Domain ${recipientDomain} is not yet active on this relay`));
+        const err = new Error(`Domain ${recipientDomain} is not yet active on this relay`);
+        err.responseCode = 550;
+        return callback(err);
       }
       session.envelope._domainRow = domainRow; // stash for onData
       callback();
@@ -75,7 +79,9 @@ function buildServer() {
         try {
           parsed = await simpleParser(rawBuffer);
         } catch (err) {
-          return callback(new Error('451 4.3.0 Could not parse message'));
+          const parseErr = new Error('Could not parse message');
+          parseErr.responseCode = 451;
+          return callback(parseErr);
         }
 
         const senderAddress = (parsed.from && parsed.from.value[0] && parsed.from.value[0].address) || session.envelope.mailFrom.address;
@@ -92,7 +98,9 @@ function buildServer() {
             reason: loopCheck.reason, headers_json: null, size_bytes: rawBuffer.length, eml_path: null,
             received_at: new Date(startedAt).toISOString(), processed_at: new Date().toISOString(),
           });
-          return callback(new Error(`554 5.4.6 Mail loop detected: ${loopCheck.reason}`));
+          const loopErr = new Error(`Mail loop detected: ${loopCheck.reason}`);
+          loopErr.responseCode = 554;
+          return callback(loopErr);
         }
 
         // 2. Spam / phishing scoring (PRD 6.5)
@@ -134,7 +142,9 @@ function buildServer() {
         // 3. Decision: reject / quarantine / forward
         if (score >= config.rejectThreshold) {
           logEmail({ ...baseRecord, decision: 'REJECTED', status: 'REJECTED', reason: reasons.join('; '), eml_path: null });
-          return callback(new Error('554 5.7.1 Message rejected as spam/phishing'));
+          const spamErr = new Error('Message rejected as spam/phishing');
+          spamErr.responseCode = 554;
+          return callback(spamErr);
         }
 
         if (score >= config.quarantineThreshold) {
@@ -146,7 +156,9 @@ function buildServer() {
         // 4. Transparent forward to the original provider (PRD 6.2 / 6.3)
         if (!domainRow || !domainRow.destination_mx) {
           logEmail({ ...baseRecord, decision: 'REJECTED', status: 'REJECTED', reason: 'no destination configured', eml_path: null });
-          return callback(new Error('451 4.3.0 No destination configured for this domain'));
+          const destErr = new Error('No destination configured for this domain');
+          destErr.responseCode = 451;
+          return callback(destErr);
         }
 
         try {
@@ -160,7 +172,9 @@ function buildServer() {
           callback();
         } catch (err) {
           logEmail({ ...baseRecord, decision: 'REJECTED', status: 'REJECTED', reason: `forwarding failed: ${err.message}`, eml_path: null });
-          callback(new Error('451 4.3.0 Temporary failure forwarding message'));
+          const fwdErr = new Error('Temporary failure forwarding message');
+          fwdErr.responseCode = 451;
+          callback(fwdErr);
         }
       });
     },

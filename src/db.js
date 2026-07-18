@@ -121,4 +121,4 @@ fs.mkdirSync(config.quarantineDir, { recursive: true });
 initDb(config.dbPath);
 const defaultTenant = seedDefaultTenant();
 
-module.exports = { getDb, uuid, defaultTenant, initDb, closeDb };
+module.exports = { getDb, uuid, defaultTenant, initDb, closeDb, seedDefaultTenant };
