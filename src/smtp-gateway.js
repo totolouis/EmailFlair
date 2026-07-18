@@ -1,7 +1,7 @@
 const { SMTPServer } = require('smtp-server');
 const { simpleParser } = require('mailparser');
 const config = require('./config');
-const { db, uuid, defaultTenant } = require('./db');
+const { getDb, uuid, defaultTenant } = require('./db');
 const { resolveDestination } = require('./routing-engine');
 const { detectLoop, signRelayId } = require('./loop-prevention');
 const { scoreEmail } = require('./spam-filter');
@@ -20,7 +20,7 @@ function injectHeaders(rawBuffer, headerLines) {
 }
 
 function logEmail(record) {
-  db.prepare(`
+  getDb().prepare(`
     INSERT INTO emails (
       id, tenant_id, domain, sender, recipient, subject, remote_ip,
       spam_score, decision, status, relay_id, reason, headers_json,
@@ -59,6 +59,10 @@ function buildServer() {
       let remoteIp = session.remoteAddress;
 
       stream.on('data', (chunk) => chunks.push(chunk));
+      stream.on('error', (err) => {
+        console.error('[smtp] stream error:', err.message);
+        callback(new Error('451 4.3.0 Temporary error reading message'));
+      });
 
       stream.on('end', async () => {
         const rawBuffer = Buffer.concat(chunks);

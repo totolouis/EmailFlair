@@ -5,6 +5,19 @@ function bool(v, def) {
   return v === 'true' || v === '1';
 }
 
+function validate() {
+  const errors = [];
+  const relaySecret = process.env.RELAY_SECRET;
+  if (relaySecret && (relaySecret === 'change-me' || relaySecret.length < 8)) {
+    errors.push('RELAY_SECRET must be at least 8 characters and not the default value');
+  }
+  if (errors.length) {
+    console.error('[config] Invalid configuration:', errors.join('; '));
+  }
+}
+
+validate();
+
 module.exports = {
   relayId: process.env.RELAY_ID || 'relay-01',
   relaySecret: process.env.RELAY_SECRET || 'dev-secret-do-not-use-in-prod',

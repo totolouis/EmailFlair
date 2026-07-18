@@ -27,7 +27,8 @@ async function lookupDomainMx(domain) {
   try {
     records = await dns.resolveMx(domain);
   } catch (err) {
-    return null;
+    if (err.code === 'ENOTFOUND' || err.code === 'ENODATA') return null;
+    throw err;
   }
   if (!records || records.length === 0) return null;
 

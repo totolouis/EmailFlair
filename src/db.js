@@ -4,14 +4,28 @@ const Database = require('better-sqlite3');
 const { v4: uuid } = require('uuid');
 const config = require('./config');
 
-fs.mkdirSync(path.dirname(config.dbPath), { recursive: true });
-fs.mkdirSync(config.quarantineDir, { recursive: true });
+const state = { db: null };
 
-const db = new Database(config.dbPath);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+function initDb(dbPath) {
+  if (state.db) {
+    state.db.close();
+  }
 
-db.exec(`
+  const isMemory = dbPath === ':memory:';
+  if (!isMemory) {
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  }
+
+  state.db = new Database(dbPath);
+  state.db.pragma('journal_mode = WAL');
+  state.db.pragma('foreign_keys = ON');
+
+  runMigrations();
+  return getDb();
+}
+
+function runMigrations() {
+  state.db.exec(`
 CREATE TABLE IF NOT EXISTS tenants (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -72,10 +86,18 @@ CREATE INDEX IF NOT EXISTS idx_emails_domain ON emails(domain);
 CREATE INDEX IF NOT EXISTS idx_emails_status ON emails(status);
 CREATE INDEX IF NOT EXISTS idx_domains_tenant ON domains(tenant_id);
 `);
+}
+
+function getDb() {
+  if (!state.db) {
+    throw new Error('Database not initialized. Call initDb() first.');
+  }
+  return state.db;
+}
 
 // Seed a default tenant so the API/dashboard work out of the box.
 function seedDefaultTenant() {
-  const existing = db.prepare('SELECT * FROM tenants WHERE api_key = ?').get(config.defaultTenantApiKey);
+  const existing = getDb().prepare('SELECT * FROM tenants WHERE api_key = ?').get(config.defaultTenantApiKey);
   if (existing) return existing;
   const tenant = {
     id: uuid(),
@@ -83,10 +105,20 @@ function seedDefaultTenant() {
     api_key: config.defaultTenantApiKey,
     created_at: new Date().toISOString(),
   };
-  db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (@id, @name, @api_key, @created_at)').run(tenant);
+  getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (@id, @name, @api_key, @created_at)').run(tenant);
   return tenant;
 }
 
+function closeDb() {
+  if (state.db) {
+    state.db.close();
+    state.db = null;
+  }
+}
+
+// Initialize on module load for production use
+fs.mkdirSync(config.quarantineDir, { recursive: true });
+initDb(config.dbPath);
 const defaultTenant = seedDefaultTenant();
 
-module.exports = { db, uuid, defaultTenant };
+module.exports = { getDb, uuid, defaultTenant, initDb, closeDb };

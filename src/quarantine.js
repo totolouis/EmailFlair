@@ -14,12 +14,21 @@ function storeRaw(emailId, rawBuffer) {
 }
 
 function readRaw(emlPath) {
-  return fs.readFileSync(emlPath);
+  try {
+    return fs.readFileSync(emlPath);
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
 }
 
 function deleteRaw(emlPath) {
   if (emlPath && fs.existsSync(emlPath)) {
-    fs.unlinkSync(emlPath);
+    try {
+      fs.unlinkSync(emlPath);
+    } catch (err) {
+      console.error('[quarantine] error deleting file:', err.message);
+    }
   }
 }
 

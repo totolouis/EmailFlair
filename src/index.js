@@ -9,12 +9,25 @@ smtpServer.listen(config.smtpPort, () => {
 });
 smtpServer.on('error', (err) => console.error('[smtp-gateway] error:', err.message));
 
-const apiApp = buildApiApp();
-apiApp.listen(config.apiPort, () => {
+const apiServer = buildApiApp();
+apiServer.listen(config.apiPort, () => {
   console.log(`[api]           listening on port ${config.apiPort}`);
   console.log(`[dashboard]     http://localhost:${config.apiPort}/`);
   console.log(`[tenant]        default tenant API key: ${defaultTenant.api_key}`);
 });
 
-process.on('SIGINT', () => { console.log('\nShutting down...'); process.exit(0); });
-process.on('SIGTERM', () => { process.exit(0); });
+function shutdown(signal) {
+  console.log(`\n[${signal}] Shutting down gracefully...`);
+  smtpServer.close(() => {
+    apiServer.close(() => {
+      process.exit(0);
+    });
+  });
+  setTimeout(() => {
+    console.error('[shutdown] Forced exit after timeout');
+    process.exit(1);
+  }, 10000).unref();
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

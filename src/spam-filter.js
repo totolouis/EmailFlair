@@ -1,4 +1,4 @@
-const { db } = require('./db');
+const { getDb } = require('./db');
 
 // Very small, deterministic MVP heuristic scoring engine.
 // V2 (per PRD roadmap) replaces/augments this with Rspamd + ClamAV + URL reputation.
@@ -10,7 +10,7 @@ const SUSPICIOUS_SUBJECT_WORDS = [
 
 function isListed(tenantId, table, type, value) {
   if (!value) return false;
-  const row = db
+  const row = getDb()
     .prepare(`SELECT 1 FROM ${table} WHERE tenant_id = ? AND type = ? AND lower(value) = lower(?) LIMIT 1`)
     .get(tenantId, type, value);
   return !!row;

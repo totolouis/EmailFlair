@@ -1,9 +1,11 @@
 const express = require('express');
-const { db, uuid } = require('../../db');
+const { getDb, uuid } = require('../../db');
 const config = require('../../config');
 const { lookupDomainMx, mxPointsToRelay } = require('../../dns-lookup');
 
 const router = express.Router();
+
+const DOMAIN_RE = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/;
 
 // POST /domains  { "name": "company.com" }
 // Detects the current provider via MX lookup, stores it as the future
@@ -15,8 +17,11 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'body must include "name" (domain)' });
   }
   const domainName = name.trim().toLowerCase();
+  if (!DOMAIN_RE.test(domainName)) {
+    return res.status(400).json({ error: `"${domainName}" is not a valid domain name` });
+  }
 
-  const existing = db.prepare('SELECT * FROM domains WHERE name = ?').get(domainName);
+  const existing = getDb().prepare('SELECT * FROM domains WHERE name = ?').get(domainName);
   if (existing) {
     return res.status(409).json({ error: `domain ${domainName} is already registered`, domain: serialize(existing) });
   }
@@ -39,7 +44,7 @@ router.post('/', async (req, res) => {
     activated_at: null,
   };
 
-  db.prepare(`
+  getDb().prepare(`
     INSERT INTO domains (id, tenant_id, name, provider, origin_mx, destination_mx, relay_target, status, created_at, activated_at)
     VALUES (@id, @tenant_id, @name, @provider, @origin_mx, @destination_mx, @relay_target, @status, @created_at, @activated_at)
   `).run(row);
@@ -49,20 +54,20 @@ router.post('/', async (req, res) => {
 
 // GET /domains  — list all domains for the caller's tenant
 router.get('/', (req, res) => {
-  const rows = db.prepare('SELECT * FROM domains WHERE tenant_id = ? ORDER BY created_at DESC').all(req.tenant.id);
+  const rows = getDb().prepare('SELECT * FROM domains WHERE tenant_id = ? ORDER BY created_at DESC').all(req.tenant.id);
   res.json({ domains: rows.map(serialize) });
 });
 
 // GET /domains/:name
 router.get('/:name', (req, res) => {
-  const row = db.prepare('SELECT * FROM domains WHERE tenant_id = ? AND name = ?').get(req.tenant.id, req.params.name.toLowerCase());
+  const row = getDb().prepare('SELECT * FROM domains WHERE tenant_id = ? AND name = ?').get(req.tenant.id, req.params.name.toLowerCase());
   if (!row) return res.status(404).json({ error: 'domain not found' });
   res.json({ domain: serialize(row), instructions: mxInstructions(row) });
 });
 
 // POST /domains/:name/activate — verify the MX has actually been switched, then flip to ACTIVE
 router.post('/:name/activate', async (req, res) => {
-  const row = db.prepare('SELECT * FROM domains WHERE tenant_id = ? AND name = ?').get(req.tenant.id, req.params.name.toLowerCase());
+  const row = getDb().prepare('SELECT * FROM domains WHERE tenant_id = ? AND name = ?').get(req.tenant.id, req.params.name.toLowerCase());
   if (!row) return res.status(404).json({ error: 'domain not found' });
 
   const pointsToRelay = await mxPointsToRelay(row.name, config.relayHostname);
@@ -73,18 +78,18 @@ router.post('/:name/activate', async (req, res) => {
     });
   }
 
-  db.prepare('UPDATE domains SET status = ?, activated_at = ? WHERE id = ?')
+  getDb().prepare('UPDATE domains SET status = ?, activated_at = ? WHERE id = ?')
     .run('ACTIVE', new Date().toISOString(), row.id);
 
-  const updated = db.prepare('SELECT * FROM domains WHERE id = ?').get(row.id);
+  const updated = getDb().prepare('SELECT * FROM domains WHERE id = ?').get(row.id);
   res.json({ domain: serialize(updated) });
 });
 
 // DELETE /domains/:name
 router.delete('/:name', (req, res) => {
-  const row = db.prepare('SELECT * FROM domains WHERE tenant_id = ? AND name = ?').get(req.tenant.id, req.params.name.toLowerCase());
+  const row = getDb().prepare('SELECT * FROM domains WHERE tenant_id = ? AND name = ?').get(req.tenant.id, req.params.name.toLowerCase());
   if (!row) return res.status(404).json({ error: 'domain not found' });
-  db.prepare('DELETE FROM domains WHERE id = ?').run(row.id);
+  getDb().prepare('DELETE FROM domains WHERE id = ?').run(row.id);
   res.status(204).send();
 });
 

@@ -1,4 +1,4 @@
-const { db } = require('../db');
+const { getDb } = require('../db');
 
 /**
  * Very small API-key auth: `Authorization: Bearer <tenant api key>`.
@@ -7,11 +7,11 @@ const { db } = require('../db');
  */
 function requireTenant(req, res, next) {
   const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : (req.query.api_key || '');
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
   if (!token) {
     return res.status(401).json({ error: 'Missing API key (Authorization: Bearer <key>)' });
   }
-  const tenant = db.prepare('SELECT * FROM tenants WHERE api_key = ?').get(token);
+  const tenant = getDb().prepare('SELECT * FROM tenants WHERE api_key = ?').get(token);
   if (!tenant) {
     return res.status(401).json({ error: 'Invalid API key' });
   }

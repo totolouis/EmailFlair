@@ -1,13 +1,19 @@
 const express = require('express');
-const { db, uuid } = require('../../db');
+const { getDb, uuid } = require('../../db');
 
 const router = express.Router();
 
+const ALLOWED_TABLES = new Set(['blacklist', 'whitelist']);
+
 function makeListRoutes(table) {
+  if (!ALLOWED_TABLES.has(table)) {
+    throw new Error(`Invalid table name: ${table}`);
+  }
+
   const r = express.Router();
 
   r.get('/', (req, res) => {
-    const rows = db.prepare(`SELECT * FROM ${table} WHERE tenant_id = ? ORDER BY created_at DESC`).all(req.tenant.id);
+    const rows = getDb().prepare(`SELECT * FROM ${table} WHERE tenant_id = ? ORDER BY created_at DESC`).all(req.tenant.id);
     res.json({ [table]: rows.map((row) => ({ id: row.id, type: row.type, value: row.value, createdAt: row.created_at })) });
   });
 
@@ -17,14 +23,14 @@ function makeListRoutes(table) {
       return res.status(400).json({ error: 'body must include type ("ip"|"domain") and value' });
     }
     const row = { id: uuid(), tenant_id: req.tenant.id, type, value: value.trim().toLowerCase(), created_at: new Date().toISOString() };
-    db.prepare(`INSERT INTO ${table} (id, tenant_id, type, value, created_at) VALUES (@id, @tenant_id, @type, @value, @created_at)`).run(row);
+    getDb().prepare(`INSERT INTO ${table} (id, tenant_id, type, value, created_at) VALUES (@id, @tenant_id, @type, @value, @created_at)`).run(row);
     res.status(201).json({ entry: { id: row.id, type: row.type, value: row.value, createdAt: row.created_at } });
   });
 
   r.delete('/:id', (req, res) => {
-    const row = db.prepare(`SELECT * FROM ${table} WHERE tenant_id = ? AND id = ?`).get(req.tenant.id, req.params.id);
+    const row = getDb().prepare(`SELECT * FROM ${table} WHERE tenant_id = ? AND id = ?`).get(req.tenant.id, req.params.id);
     if (!row) return res.status(404).json({ error: 'entry not found' });
-    db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(row.id);
+    getDb().prepare(`DELETE FROM ${table} WHERE id = ?`).run(row.id);
     res.status(204).send();
   });
 

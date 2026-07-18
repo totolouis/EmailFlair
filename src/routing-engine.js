@@ -1,4 +1,4 @@
-const { db } = require('./db');
+const { getDb } = require('./db');
 
 /**
  * Look up the destination mail server for a given recipient domain.
@@ -9,7 +9,7 @@ const { db } = require('./db');
  * Returns the domain row, or null if the domain isn't configured on this relay.
  */
 function resolveDestination(recipientDomain) {
-  const row = db.prepare('SELECT * FROM domains WHERE lower(name) = lower(?)').get(recipientDomain);
+  const row = getDb().prepare('SELECT * FROM domains WHERE lower(name) = lower(?)').get(recipientDomain);
   if (!row) return null;
   return row;
 }
