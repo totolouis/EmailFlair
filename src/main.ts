@@ -20,8 +20,28 @@ async function bootstrap() {
   const defaultTenant = databaseService.seedDefaultTenant();
   console.log(`[init] Database initialized. Default tenant API key: ${defaultTenant.api_key}`);
 
+  fs.mkdirSync(config.quarantineDir, { recursive: true });
+
+  /* Serve dashboard and health endpoint on the NestJS Express adapter */
+  const adapter = app.getHttpAdapter();
+  const instance = adapter.getInstance();
+  instance.get('/health', (_req: any, res: any) => res.json({ ok: true }));
+  instance.use('/', express.static(path.join(__dirname, 'dashboard')));
+
+  /* Start HTTP server first so ACME challenge endpoint is live for LE validation */
+  await app.listen(apiPort);
+  console.log(`[api] listening on port ${apiPort}`);
+  console.log(`[dashboard] http://localhost:${apiPort}/`);
+
+  /* Start SMTP server (without TLS initially — ACME will supply it) */
+  const { buildServer } = require('./smtp-gateway.js');
+  let smtpServer = buildServer();
+  smtpServer.listen(smtpPort, () => {
+    console.log(`[smtp-gateway] listening on port ${smtpPort} as ${config.relayHostname}`);
+  });
+  smtpServer.on('error', (err: Error) => console.error('[smtp-gateway] error:', err.message));
+
   let acmeManager: AcmeManager | null = null;
-  let tlsOptions: CertFiles | undefined;
 
   if (config.tlsAcmeEnabled) {
     acmeManager = new AcmeManager({
@@ -32,29 +52,6 @@ async function bootstrap() {
 
     setAcmeManagerRef(acmeManager);
 
-    try {
-      await acmeManager.init();
-      tlsOptions = acmeManager.getServerOptions();
-    } catch (err) {
-      console.error('[tls] ACME init failed, will retry in background:', (err as Error).message);
-      acmeManager.startRetry(30_000);
-    }
-
-    if (tlsOptions) {
-      console.log('[tls] SMTP STARTTLS enabled');
-    } else {
-      console.log('[tls] SMTP STARTTLS not available — ACME will retry in background');
-    }
-  }
-
-  const { buildServer } = require('./smtp-gateway.js');
-  let smtpServer = buildServer(tlsOptions);
-  smtpServer.listen(smtpPort, () => {
-    console.log(`[smtp-gateway] listening on port ${smtpPort} as ${config.relayHostname}`);
-  });
-  smtpServer.on('error', (err: Error) => console.error('[smtp-gateway] error:', err.message));
-
-  if (acmeManager) {
     acmeManager.on('renew' as any, (newCert: CertFiles | undefined) => {
       if (!newCert) return;
       console.log('[tls] Cert renewed, restarting SMTP server with new cert...');
@@ -66,22 +63,26 @@ async function bootstrap() {
         smtpServer.on('error', (err: Error) => console.error('[smtp-gateway] error:', err.message));
       });
     });
-    if (tlsOptions) {
-      acmeManager.scheduleRenewal();
+
+    try {
+      await acmeManager.init();
+      const tlsOptions = acmeManager.getServerOptions();
+      if (tlsOptions) {
+        console.log('[tls] SMTP STARTTLS enabled');
+        smtpServer.close(() => {
+          smtpServer = buildServer(tlsOptions);
+          smtpServer.listen(smtpPort, () => {
+            console.log(`[smtp-gateway] restarted on port ${smtpPort} with TLS cert`);
+          });
+          smtpServer.on('error', (err: Error) => console.error('[smtp-gateway] error:', err.message));
+        });
+        acmeManager.scheduleRenewal();
+      }
+    } catch (err) {
+      console.error('[tls] ACME init failed, will retry in background:', (err as Error).message);
+      acmeManager.startRetry(30_000);
     }
   }
-
-  fs.mkdirSync(config.quarantineDir, { recursive: true });
-
-  /* Serve dashboard and health endpoint on the NestJS Express adapter */
-  const adapter = app.getHttpAdapter();
-  const instance = adapter.getInstance();
-  instance.get('/health', (_req: any, res: any) => res.json({ ok: true }));
-  instance.use('/', express.static(path.join(__dirname, 'dashboard')));
-
-  await app.listen(apiPort);
-  console.log(`[api] listening on port ${apiPort}`);
-  console.log(`[dashboard] http://localhost:${apiPort}/`);
 
   function shutdown(signal: string) {
     console.log(`\n[${signal}] Shutting down gracefully...`);
