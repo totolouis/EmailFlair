@@ -22,12 +22,13 @@ services:
     restart: unless-stopped
 
   certbot:
-    image: certbot/dns-linode
+    build:
+      dockerfile: Dockerfile.certbot
     entrypoint: /bin/sh
     command:
       - -c
       - |
-        certbot certonly --dns-linode --dns-linode-credentials /linode.ini \
+        certbot certonly --dns-linode --dns-linode-credentials /linode.ini --dns-linode-propagation-seconds 60 \
           -d $$RELAY_HOSTNAME --non-interactive --agree-tos --no-eff-email -m $$CERTBOT_EMAIL \
         && trap exit TERM \
         && while :; do certbot renew --non-interactive && sleep 12h; done
