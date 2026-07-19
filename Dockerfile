@@ -10,7 +10,7 @@ FROM node:20-slim
 WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-RUN mkdir -p /app/data/quarantine /app/data/acme
+RUN mkdir -p /app/data/quarantine /app/data/tls
 
 EXPOSE 2525 3000
 

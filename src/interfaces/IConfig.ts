@@ -11,7 +11,5 @@ export interface IConfig {
   defaultTenantName: string;
   defaultTenantApiKey: string;
   smtpTlsPort: number;
-  tlsAcmeEnabled: boolean;
-  tlsAcmeEmail: string;
-  tlsAcmeStorage: string;
+  tlsCertDir: string;
 }

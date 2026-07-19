@@ -1,6 +1,7 @@
 volumes:
   relay-data:
   traefik-data:
+  certbot-data:
 
 services:
   traefik:
@@ -20,6 +21,26 @@ services:
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
     restart: unless-stopped
 
+  certbot:
+    image: certbot/dns-linode
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        certbot certonly --dns-linode --dns-linode-credentials /etc/letsencrypt/linode.ini
+        -d $$RELAY_HOSTNAME --non-interactive --agree-tos -m $$CERTBOT_EMAIL
+        && trap exit TERM
+        && while :; do certbot renew --non-interactive && sleep 12h; done
+    environment:
+      RELAY_HOSTNAME: ${RELAY_HOSTNAME}
+      CERTBOT_EMAIL: ${CERTBOT_EMAIL}
+    volumes:
+      - certbot-data:/etc/letsencrypt
+      - ./linode.ini:/etc/letsencrypt/linode.ini:ro
+    restart: unless-stopped
+    depends_on:
+      - relay
+
   relay:
     build: .
     image: email-security-relay:latest
@@ -34,9 +55,7 @@ services:
       RELAY_HOSTNAME: ${RELAY_HOSTNAME}
       SMTP_PORT: 2525
       API_PORT: 3000
-      TLS_ACME_ENABLED: "true"
-      TLS_ACME_EMAIL: ${TLS_ACME_EMAIL}
-      TLS_ACME_STORAGE: /app/data/acme
+      TLS_CERT_DIR: /app/data/tls
       SPAM_QUARANTINE_THRESHOLD: ${SPAM_QUARANTINE_THRESHOLD:-5}
       SPAM_REJECT_THRESHOLD: ${SPAM_REJECT_THRESHOLD:-10}
       DB_PATH: /app/data/relay.db
@@ -44,4 +63,5 @@ services:
       DEFAULT_TENANT_API_KEY: ${DEFAULT_TENANT_API_KEY:-dev-tenant-key}
     volumes:
       - relay-data:/app/data
+      - certbot-data:/etc/letsencrypt:ro
     restart: unless-stopped

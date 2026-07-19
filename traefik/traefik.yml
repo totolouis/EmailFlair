@@ -45,12 +45,6 @@ http:
         certResolver: letsencrypt
       service: relay-api
 
-    relay-acme-challenge:
-      entryPoints:
-        - web
-      rule: "PathPrefix(`/.well-known/acme-challenge/`)"
-      service: relay-api
-
     relay-http-redirect:
       entryPoints:
         - web

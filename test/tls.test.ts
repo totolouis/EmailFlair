@@ -2,92 +2,76 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
 import path from 'path';
 import fs from 'fs';
-import { CertStore } from '../dist/tls/CertStore';
+import { CertManager } from '../dist/tls/CertManager';
 
-const TEST_STORAGE = path.join(__dirname, '..', 'data', 'test-tls-' + process.pid);
+const TEST_DIR = path.join(__dirname, '..', 'data', 'test-tls-' + process.pid);
 const TEST_DOMAIN = 'test.example.com';
 
-describe('CertStore', () => {
-  before(() => {
-    fs.mkdirSync(TEST_STORAGE, { recursive: true });
+describe('CertManager', () => {
+  after(() => {
+    fs.rmSync(TEST_DIR, { recursive: true, force: true });
   });
+
+  it('should generate a self-signed cert when none exists', () => {
+    const mgr = new CertManager(TEST_DIR, TEST_DOMAIN);
+    mgr.init();
+    const opts = mgr.getServerOptions();
+    assert.ok(opts);
+    assert.ok(opts!.key.length > 0, 'key should not be empty');
+    assert.ok(opts!.cert.length > 0, 'cert should not be empty');
+    assert.ok(opts!.key.toString().includes('-----BEGIN RSA PRIVATE KEY-----'));
+    assert.ok(opts!.cert.toString().includes('-----BEGIN CERTIFICATE-----'));
+    mgr.dispose();
+  });
+
+  it('should persist and reload cert', () => {
+    const mgr1 = new CertManager(TEST_DIR, TEST_DOMAIN);
+    mgr1.init();
+    const opts1 = mgr1.getServerOptions()!;
+    mgr1.dispose();
+
+    const mgr2 = new CertManager(TEST_DIR, TEST_DOMAIN);
+    mgr2.init();
+    const opts2 = mgr2.getServerOptions()!;
+    mgr2.dispose();
+
+    assert.equal(opts1.key.toString(), opts2.key.toString());
+    assert.equal(opts1.cert.toString(), opts2.cert.toString());
+  });
+
+  it('should return undefined for getServerOptions before init', () => {
+    const mgr = new CertManager(TEST_DIR, TEST_DOMAIN);
+    assert.strictEqual(mgr.getServerOptions(), undefined);
+    mgr.dispose();
+  });
+});
+
+describe('CertManager — different domains', () => {
+  const dirA = path.join(TEST_DIR, 'domain-a');
+  const dirB = path.join(TEST_DIR, 'domain-b');
 
   after(() => {
-    fs.rmSync(TEST_STORAGE, { recursive: true, force: true });
+    fs.rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
-  it('should return false for hasCert when no cert exists', () => {
-    assert.equal(CertStore.hasCert(TEST_DOMAIN, TEST_STORAGE), false);
-  });
+  it('should generate different certs for different domains', () => {
+    const mgrA = new CertManager(dirA, 'domain-a.example.com');
+    mgrA.init();
+    const optsA = mgrA.getServerOptions()!;
+    mgrA.dispose();
 
-  it('should save and load cert files', () => {
-    CertStore.save(TEST_DOMAIN, TEST_STORAGE, {
-      key: Buffer.from('test-key-data'),
-      cert: Buffer.from('test-cert-data'),
-    });
-    assert.ok(CertStore.hasCert(TEST_DOMAIN, TEST_STORAGE));
+    const mgrB = new CertManager(dirB, 'domain-b.example.com');
+    mgrB.init();
+    const optsB = mgrB.getServerOptions()!;
+    mgrB.dispose();
 
-    const loaded = CertStore.load(TEST_DOMAIN, TEST_STORAGE);
-    assert.ok(loaded);
-    assert.equal(loaded!.key.toString(), 'test-key-data');
-    assert.equal(loaded!.cert.toString(), 'test-cert-data');
-  });
-
-  it('should return null when loading non-existent cert', () => {
-    const loaded = CertStore.load('nonexistent.com', TEST_STORAGE);
-    assert.strictEqual(loaded, null);
-  });
-
-  it('should save cert with ca', () => {
-    CertStore.save(TEST_DOMAIN, TEST_STORAGE, {
-      key: Buffer.from('key'),
-      cert: Buffer.from('cert'),
-      ca: Buffer.from('ca-data'),
-    });
-    const loaded = CertStore.load(TEST_DOMAIN, TEST_STORAGE);
-    assert.ok(loaded);
-    assert.equal(loaded!.ca?.toString(), 'ca-data');
-  });
-
-  it('should manage account key lifecycle', () => {
-    assert.equal(CertStore.hasAccountKey(TEST_STORAGE), false);
-    CertStore.saveAccountKey(TEST_STORAGE, Buffer.from('account-key-data'));
-    assert.equal(CertStore.hasAccountKey(TEST_STORAGE), true);
-    const loaded = CertStore.loadAccountKey(TEST_STORAGE);
-    assert.equal(loaded.toString(), 'account-key-data');
-  });
-
-  it('should return null for daysUntilExpiry when no cert', () => {
-    const days = CertStore.daysUntilExpiry('nonexistent.com', TEST_STORAGE);
-    assert.strictEqual(days, null);
-  });
-
-  it('should calculate correct days until expiry', () => {
-    const pki = require('node-forge').pki;
-    const keys = pki.rsa.generateKeyPair(2048);
-    const cert = pki.createCertificate();
-    cert.publicKey = keys.publicKey;
-    cert.serialNumber = '02';
-    cert.validity.notBefore = new Date();
-    cert.validity.notAfter = new Date(Date.now() + 30 * 86_400_000);
-    cert.setSubject([{ name: 'commonName', value: TEST_DOMAIN }]);
-    cert.setIssuer([{ name: 'commonName', value: TEST_DOMAIN }]);
-    cert.sign(keys.privateKey);
-    const pem = pki.certificateToPem(cert);
-
-    CertStore.save(TEST_DOMAIN, TEST_STORAGE, {
-      key: Buffer.from('dummy-key'),
-      cert: Buffer.from(pem),
-    });
-
-    const days = CertStore.daysUntilExpiry(TEST_DOMAIN, TEST_STORAGE);
-    assert.ok(days !== null);
-    assert.ok(days >= 28 && days <= 31, `Expected ~30 days, got ${days}`);
+    assert.notEqual(optsA.cert.toString(), optsB.cert.toString());
   });
 });
 
 function generateSelfSignedCert(domain: string) {
-  const pki = require('node-forge').pki;
+  const forge = require('node-forge');
+  const pki = forge.pki;
   const keys = pki.rsa.generateKeyPair(2048);
   const cert = pki.createCertificate();
   cert.publicKey = keys.publicKey;
