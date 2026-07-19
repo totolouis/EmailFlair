@@ -11,7 +11,7 @@ entryPoints:
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: ${TLS_ACME_EMAIL}
+      email: ${CERTBOT_EMAIL}
       storage: /certs/acme.json
       tlsChallenge: {}
 

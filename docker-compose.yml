@@ -14,7 +14,7 @@ services:
       - "80:80"     # HTTP (redirects to HTTPS + ACME challenge routing)
       - "443:443"   # HTTPS API + dashboard
     environment:
-      - TLS_ACME_EMAIL=${TLS_ACME_EMAIL}
+      - CERTBOT_EMAIL=${CERTBOT_EMAIL}
       - RELAY_HOSTNAME=${RELAY_HOSTNAME}
     volumes:
       - traefik-data:/certs
