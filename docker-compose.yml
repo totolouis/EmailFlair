@@ -27,7 +27,7 @@ services:
     command:
       - -c
       - |
-        certbot certonly --dns-linode --dns-linode-credentials /etc/letsencrypt/linode.ini
+        certbot certonly --dns-linode --dns-linode-credentials /linode.ini
         -d $$RELAY_HOSTNAME --non-interactive --agree-tos -m $$CERTBOT_EMAIL
         && trap exit TERM
         && while :; do certbot renew --non-interactive && sleep 12h; done
@@ -36,7 +36,7 @@ services:
       CERTBOT_EMAIL: ${CERTBOT_EMAIL}
     volumes:
       - certbot-data:/etc/letsencrypt
-      - ./linode.ini:/etc/letsencrypt/linode.ini:ro
+      - ./linode.ini:/linode.ini:ro
     restart: unless-stopped
     depends_on:
       - relay
