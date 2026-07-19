@@ -1,6 +1,7 @@
 import {
-  Controller, Get, Post, Delete, Param, Query, Body,
-  UseGuards, HttpCode, HttpStatus, UseInterceptors, UploadedFile
+  Controller, Get, Post, Delete, Param, Query,
+  UseGuards, NotFoundException, ConflictException,
+  InternalServerErrorException, BadGatewayException
 } from '@nestjs/common';
 import { TenantGuard } from '../guards/tenant.guard';
 import { Tenant, TenantInfo } from '../decorators/tenant.decorator';
@@ -61,48 +62,50 @@ export class EmailsController {
   @Get(':id')
   getOne(@Tenant() tenant: TenantInfo, @Param('id') id: string) {
     const row = emailRepository.findById(tenant.id, id);
-    if (!row) return null;
+    if (!row) throw new NotFoundException('email not found');
     return { email: this.serializeEmail(row, true) };
   }
 
   @Post(':id/release')
-  @HttpCode(HttpStatus.OK)
   async release(@Tenant() tenant: TenantInfo, @Param('id') id: string) {
     const row = emailRepository.findById(tenant.id, id);
-    if (!row) return { statusCode: HttpStatus.NOT_FOUND, message: 'email not found' };
+    if (!row) throw new NotFoundException('email not found');
     if (row.status !== 'QUARANTINED') {
-      return { statusCode: HttpStatus.CONFLICT, message: `email is not quarantined (status=${row.status})` };
+      throw new ConflictException(`email is not quarantined (status=${row.status})`);
     }
     if (!row.eml_path) {
-      return { statusCode: HttpStatus.INTERNAL_SERVER_ERROR, message: 'quarantined message has no stored content' };
+      throw new InternalServerErrorException('quarantined message has no stored content');
     }
 
     const domainRow = domainRepository.findByName(row.domain);
     if (!domainRow || !domainRow.destination_mx) {
-      return { statusCode: HttpStatus.INTERNAL_SERVER_ERROR, message: 'no destination configured for this domain' };
+      throw new InternalServerErrorException('no destination configured for this domain');
     }
 
     const raw = quarantineService.readRaw(row.eml_path);
     if (!raw) {
-      return { statusCode: HttpStatus.INTERNAL_SERVER_ERROR, message: 'quarantined message file not found on disk' };
+      throw new InternalServerErrorException('quarantined message file not found on disk');
     }
 
-    await forwarderService.forward({
-      destinationHost: domainRow.destination_mx,
-      from: row.sender || '',
-      to: [row.recipient || ''],
-      rawMessage: raw,
-    });
-    emailRepository.updateStatus(row.id, 'FORWARDED', 'FORWARDED', new Date().toISOString());
-    quarantineService.deleteRaw(row.eml_path);
-    return { ok: true };
+    try {
+      await forwarderService.forward({
+        destinationHost: domainRow.destination_mx,
+        from: row.sender || '',
+        to: [row.recipient || ''],
+        rawMessage: raw,
+      });
+      emailRepository.updateStatus(row.id, 'FORWARDED', 'FORWARDED', new Date().toISOString());
+      quarantineService.deleteRaw(row.eml_path);
+      return { ok: true };
+    } catch (err) {
+      throw new BadGatewayException(`release failed: ${(err as Error).message}`);
+    }
   }
 
   @Delete(':id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  delete(@Tenant() tenant: TenantInfo, @Param('id') id: string) {
+  async delete(@Tenant() tenant: TenantInfo, @Param('id') id: string) {
     const row = emailRepository.findById(tenant.id, id);
-    if (!row) return null;
+    if (!row) throw new NotFoundException('email not found');
     if (row.eml_path) quarantineService.deleteRaw(row.eml_path);
     emailRepository.delete(row.id);
   }

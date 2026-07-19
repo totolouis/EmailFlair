@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import path from 'path';
+import express from 'express';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './nest/app.module';
 import config from './config';
@@ -70,6 +72,12 @@ async function bootstrap() {
   }
 
   fs.mkdirSync(config.quarantineDir, { recursive: true });
+
+  /* Serve dashboard and health endpoint on the NestJS Express adapter */
+  const adapter = app.getHttpAdapter();
+  const instance = adapter.getInstance();
+  instance.get('/health', (_req: any, res: any) => res.json({ ok: true }));
+  instance.use('/', express.static(path.join(__dirname, 'dashboard')));
 
   await app.listen(apiPort);
   console.log(`[api] listening on port ${apiPort}`);

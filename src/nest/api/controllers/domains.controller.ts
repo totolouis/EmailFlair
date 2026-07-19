@@ -1,5 +1,7 @@
 import {
-  Controller, Get, Post, Delete, Param, Body, UseGuards, HttpCode, HttpStatus
+  Controller, Get, Post, Delete, Param, Body, UseGuards,
+  NotFoundException, ConflictException, BadRequestException,
+  UnprocessableEntityException, HttpCode
 } from '@nestjs/common';
 import { TenantGuard } from '../guards/tenant.guard';
 import { Tenant, TenantInfo } from '../decorators/tenant.decorator';
@@ -37,24 +39,23 @@ export class DomainsController {
   }
 
   @Post()
-  @HttpCode(HttpStatus.CREATED)
   async create(@Tenant() tenant: TenantInfo, @Body('name') name: string) {
     if (!name || typeof name !== 'string') {
-      return { statusCode: HttpStatus.BAD_REQUEST, message: 'body must include "name" (domain)' };
+      throw new BadRequestException('body must include "name" (domain)');
     }
     const domainName = name.trim().toLowerCase();
     if (!DOMAIN_RE.test(domainName)) {
-      return { statusCode: HttpStatus.BAD_REQUEST, message: `"${domainName}" is not a valid domain name` };
+      throw new BadRequestException(`"${domainName}" is not a valid domain name`);
     }
 
     const existing = domainRepository.findByName(domainName);
     if (existing) {
-      return { statusCode: HttpStatus.CONFLICT, message: `domain ${domainName} is already registered`, domain: this.serializeDomain(existing) };
+      throw new ConflictException(`domain ${domainName} is already registered`);
     }
 
     const mx = await dnsLookupService.lookupDomainMx(domainName);
     if (!mx) {
-      return { statusCode: 422, message: `could not resolve MX records for ${domainName}. Verify the domain has mail configured.` };
+      throw new UnprocessableEntityException(`could not resolve MX records for ${domainName}. Verify the domain has mail configured.`);
     }
 
     const row = {
@@ -83,23 +84,18 @@ export class DomainsController {
   @Get(':name')
   getOne(@Tenant() tenant: TenantInfo, @Param('name') name: string) {
     const row = domainRepository.findByTenantAndName(tenant.id, name.toLowerCase());
-    if (!row) return null;
+    if (!row) throw new NotFoundException('domain not found');
     return { domain: this.serializeDomain(row), instructions: this.mxInstructions(row) };
   }
 
   @Post(':name/activate')
-  @HttpCode(HttpStatus.OK)
   async activate(@Tenant() tenant: TenantInfo, @Param('name') name: string) {
     const row = domainRepository.findByTenantAndName(tenant.id, name.toLowerCase());
-    if (!row) return null;
+    if (!row) throw new NotFoundException('domain not found');
 
     const pointsToRelay = await dnsLookupService.mxPointsToRelay(row.name, config.relayHostname);
     if (!pointsToRelay) {
-      return {
-        statusCode: HttpStatus.CONFLICT,
-        message: `MX for ${row.name} does not yet point to ${config.relayHostname}. DNS may still be propagating.`,
-        instructions: this.mxInstructions(row),
-      };
+      throw new ConflictException(`MX for ${row.name} does not yet point to ${config.relayHostname}. DNS may still be propagating.`);
     }
 
     domainRepository.updateStatus(row.id, 'ACTIVE', new Date().toISOString());
@@ -108,10 +104,10 @@ export class DomainsController {
   }
 
   @Delete(':name')
-  @HttpCode(HttpStatus.NO_CONTENT)
+  @HttpCode(204)
   delete(@Tenant() tenant: TenantInfo, @Param('name') name: string) {
     const row = domainRepository.findByTenantAndName(tenant.id, name.toLowerCase());
-    if (!row) return null;
+    if (!row) throw new NotFoundException('domain not found');
     domainRepository.delete(row.id);
   }
 }
