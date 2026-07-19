@@ -48,7 +48,7 @@ http:
     relay-acme-challenge:
       entryPoints:
         - web
-      rule: "Host(`${RELAY_HOSTNAME}`) && PathPrefix(`/.well-known/acme-challenge/`)"
+      rule: "PathPrefix(`/.well-known/acme-challenge/`)"
       service: relay-api
 
     relay-http-redirect:
