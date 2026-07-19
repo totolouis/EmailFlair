@@ -28,8 +28,8 @@ services:
       - -c
       - |
         certbot certonly --dns-linode --dns-linode-credentials /linode.ini \
-          -d $$RELAY_HOSTNAME --non-interactive --agree-tos --no-eff-email -m $$CERTBOT_EMAIL
-        && trap exit TERM
+          -d $$RELAY_HOSTNAME --non-interactive --agree-tos --no-eff-email -m $$CERTBOT_EMAIL \
+        && trap exit TERM \
         && while :; do certbot renew --non-interactive && sleep 12h; done
     environment:
       RELAY_HOSTNAME: ${RELAY_HOSTNAME}
