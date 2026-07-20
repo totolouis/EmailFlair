@@ -22,13 +22,12 @@ services:
     restart: unless-stopped
 
   certbot:
-    build:
-      dockerfile: Dockerfile.certbot
+    image: certbot/certbot:latest
     entrypoint: /bin/sh
     command:
       - -c
       - |
-        certbot certonly --dns-linode --dns-linode-credentials /linode.ini --dns-linode-propagation-seconds 60 \
+        certbot certonly --standalone --http-01-port 8080 \
           -d $$RELAY_HOSTNAME --non-interactive --agree-tos --no-eff-email -m $$CERTBOT_EMAIL \
         && trap exit TERM \
         && while :; do certbot renew --non-interactive && sleep 12h; done
@@ -37,10 +36,9 @@ services:
       CERTBOT_EMAIL: ${CERTBOT_EMAIL}
     volumes:
       - certbot-data:/etc/letsencrypt
-      - ./linode.ini:/linode.ini:ro
     restart: unless-stopped
     depends_on:
-      - relay
+      - traefik
 
   relay:
     build: .
