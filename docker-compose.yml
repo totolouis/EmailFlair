@@ -42,32 +42,4 @@ services:
       DEFAULT_TENANT_API_KEY: ${DEFAULT_TENANT_API_KEY:-dev-tenant-key}
     volumes:
       - relay-data:/app/data
-    labels:
-      - "traefik.enable=true"
-
-      # HTTP — HTTPS API + dashboard
-      - "traefik.http.routers.relay-api.rule=Host(`${RELAY_HOSTNAME}`)"
-      - "traefik.http.routers.relay-api.entrypoints=websecure"
-      - "traefik.http.routers.relay-api.tls=true"
-      - "traefik.http.routers.relay-api.tls.certResolver=letsencrypt"
-      - "traefik.http.services.relay-api.loadbalancer.server.port=3000"
-
-      # HTTP — redirect HTTP to HTTPS
-      - "traefik.http.routers.relay-http.rule=Host(`${RELAY_HOSTNAME}`)"
-      - "traefik.http.routers.relay-http.entrypoints=web"
-      - "traefik.http.routers.relay-http.middlewares=redirect-https"
-      - "traefik.http.middlewares.redirect-https.redirectscheme.scheme=https"
-
-      # TCP — SMTP plain (port 25)
-      - "traefik.tcp.routers.smtp-passthrough.rule=HostSNI(`*`)"
-      - "traefik.tcp.routers.smtp-passthrough.entrypoints=smtp"
-      - "traefik.tcp.routers.smtp-passthrough.service=smtp-relay"
-      - "traefik.tcp.services.smtp-relay.loadbalancer.server.port=2525"
-
-      # TCP — SMTPS (port 465, TLS termination)
-      - "traefik.tcp.routers.smtps-termination.rule=HostSNI(`*`)"
-      - "traefik.tcp.routers.smtps-termination.entrypoints=smtps"
-      - "traefik.tcp.routers.smtps-termination.tls=true"
-      - "traefik.tcp.routers.smtps-termination.tls.certResolver=letsencrypt"
-      - "traefik.tcp.routers.smtps-termination.service=smtp-relay"
     restart: unless-stopped

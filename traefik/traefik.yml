@@ -16,7 +16,7 @@ entryPoints:
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: ${CERTBOT_EMAIL}
+      email: admin@mastel.top
       storage: /certs/acme.json
       httpChallenge:
         entryPoint: web
