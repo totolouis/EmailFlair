@@ -18,6 +18,7 @@ services:
     volumes:
       - traefik-data:/certs
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/traefik-dynamic.yml:/etc/traefik/traefik-dynamic.yml:ro
     restart: unless-stopped
 
   relay:
