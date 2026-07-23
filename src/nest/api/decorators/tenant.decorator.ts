@@ -4,7 +4,7 @@ import { Request } from 'express';
 export interface TenantInfo {
   id: string;
   name: string;
-  api_key: string;
+  api_key_hash: string;
   created_at: string;
 }
 

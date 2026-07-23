@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import databaseService from '../dist/services/DatabaseService';
 import spamFilterService from '../dist/services/SpamFilterService';
 import { ISpamScoreParams } from '../dist/interfaces';
+import { hashApiKey } from './helpers';
 
 const DEFAULT_SENDER = 'user@example.com';
 const DEFAULT_DOMAIN = 'example.com';
@@ -27,8 +28,8 @@ describe('spam-filter', () => {
     databaseService.init(':memory:');
     const db = databaseService.getDb();
     tenantId = databaseService.uuid();
-    db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(tenantId, 'Test', 'test-key', new Date().toISOString());
+    db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run(tenantId, 'Test', hashApiKey('test-key'), new Date().toISOString());
   });
 
   after(() => {

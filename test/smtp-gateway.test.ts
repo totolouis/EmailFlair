@@ -8,6 +8,7 @@ import config from '../dist/config';
 import databaseService from '../dist/services/DatabaseService';
 import loopPreventionService from '../dist/services/LoopPreventionService';
 import { buildServer } from '../dist/smtp-gateway';
+import { hashApiKey } from './helpers';
 
 const TEST_DIR = path.join(__dirname, '..', 'data', 'test-smtp-' + process.pid);
 const SMTP_TEST_PORT = 18987;
@@ -63,8 +64,8 @@ describe('SMTP gateway integration', () => {
     databaseService.init(':memory:');
     db = databaseService.getDb();
     tenantId = databaseService.uuid();
-    db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(tenantId, 'Test', 'test-key', new Date().toISOString());
+    db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run(tenantId, 'Test', hashApiKey('test-key'), new Date().toISOString());
 
     server = buildServer();
     server.listen(SMTP_TEST_PORT);
@@ -134,17 +135,25 @@ describe('SMTP gateway integration', () => {
 
     const beforeCount = (db.prepare("SELECT COUNT(*) as c FROM emails WHERE decision = 'QUARANTINED' AND domain = 'quarantine-test.com'").get() as { c: number }).c;
 
-    // Use subject keywords to trigger quarantine: 3 keywords * 2 = 6 points (between 5 and 10)
+    // Set thresholds so any positive score quarantines (enhanced filter adds DNS/header scores)
+    const origQuarantine = config.quarantineThreshold;
+    const origReject = config.rejectThreshold;
+    config.quarantineThreshold = 1;
+    config.rejectThreshold = 999;
+
     const result = await sendTestMessage({
       from: 'user@example.com',
       to: 'user@quarantine-test.com',
-      subject: 'URGENT wire transfer bitcoin needed',
+      subject: 'test message',
     });
 
     assert.ok(result.accepted, `Quarantined mail should be accepted, got: ${result.message}`);
 
     const afterCount = (db.prepare("SELECT COUNT(*) as c FROM emails WHERE decision = 'QUARANTINED' AND domain = 'quarantine-test.com'").get() as { c: number }).c;
     assert.equal(afterCount, beforeCount + 1, `Quarantined count should increase by 1: ${beforeCount} -> ${afterCount}`);
+
+    config.quarantineThreshold = origQuarantine;
+    config.rejectThreshold = origReject;
   });
 
   it('should reject spam with code 554 when score exceeds reject threshold', async () => {

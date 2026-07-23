@@ -11,6 +11,7 @@ import databaseService from '../dist/services/DatabaseService';
 import config from '../dist/config';
 import { requireTenant } from '../dist/middleware/AuthMiddleware';
 import emailsRouter from '../dist/api/routes/emails';
+import { hashApiKey } from './helpers';
 
 function buildApp() {
   const app = express();
@@ -32,8 +33,8 @@ describe('emails API', () => {
     const db = databaseService.getDb();
     testApiKey = 'test-emails-key';
     tenantId = databaseService.uuid();
-    db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(tenantId, 'Test', testApiKey, new Date().toISOString());
+    db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run(tenantId, 'Test', hashApiKey(testApiKey), new Date().toISOString());
     app = buildApp();
   });
 
@@ -118,8 +119,8 @@ describe('emails API', () => {
 
     it('should not show other tenants emails', async () => {
       const otherTenantId = databaseService.uuid();
-      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-        .run(otherTenantId, 'Other', 'other-key', new Date().toISOString());
+      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+        .run(otherTenantId, 'Other', hashApiKey('other-key'), new Date().toISOString());
       insertEmail({ tenant_id: otherTenantId, subject: 'Other tenant email' });
 
       const res = await request(app).get('/emails').set(auth());

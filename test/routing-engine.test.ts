@@ -2,6 +2,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
 import databaseService from '../dist/services/DatabaseService';
 import routingEngineService from '../dist/services/RoutingEngineService';
+import { hashApiKey } from './helpers';
 
 describe('routing-engine', () => {
   let tenantId: string;
@@ -10,8 +11,8 @@ describe('routing-engine', () => {
     databaseService.init(':memory:');
     const db = databaseService.getDb();
     tenantId = databaseService.uuid();
-    db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(tenantId, 'Test', 'test-key', new Date().toISOString());
+    db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run(tenantId, 'Test', hashApiKey('test-key'), new Date().toISOString());
   });
 
   after(() => {

@@ -5,6 +5,7 @@ import request from 'supertest';
 import databaseService from '../dist/services/DatabaseService';
 import { requireTenant } from '../dist/middleware/AuthMiddleware';
 import listsRouter from '../dist/api/routes/lists';
+import { hashApiKey } from './helpers';
 
 function buildApp() {
   const app = express();
@@ -23,8 +24,8 @@ describe('lists API (blacklist/whitelist)', () => {
     const db = databaseService.getDb();
     testApiKey = 'test-lists-key';
     tenantId = databaseService.uuid();
-    db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(tenantId, 'Test', testApiKey, new Date().toISOString());
+    db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run(tenantId, 'Test', hashApiKey(testApiKey), new Date().toISOString());
     app = buildApp();
   });
 
@@ -132,8 +133,8 @@ describe('lists API (blacklist/whitelist)', () => {
   describe('auth isolation', () => {
     it('should not show entries across tenants', async () => {
       const otherApiKey = 'other-tenant-key';
-      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-        .run(databaseService.uuid(), 'Other', otherApiKey, new Date().toISOString());
+      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+        .run(databaseService.uuid(), 'Other', hashApiKey(otherApiKey), new Date().toISOString());
 
       const res = await request(app).get('/lists/blacklist').set({ Authorization: `Bearer ${otherApiKey}` });
       assert.equal(res.status, 200);

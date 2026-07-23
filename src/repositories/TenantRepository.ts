@@ -1,12 +1,14 @@
 import databaseService from '../services/DatabaseService';
 import { ITenant } from '../interfaces';
+import { hashApiKey } from '../utils/crypto';
 
 class TenantRepository {
   findByApiKey(apiKey: string): ITenant | null {
+    const hashed = hashApiKey(apiKey);
     const row = databaseService
       .getDb()
-      .prepare('SELECT * FROM tenants WHERE api_key = ?')
-      .get(apiKey) as ITenant | undefined;
+      .prepare('SELECT * FROM tenants WHERE api_key_hash = ?')
+      .get(hashed) as ITenant | undefined;
 
     return row || null;
   }

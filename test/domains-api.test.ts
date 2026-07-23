@@ -5,6 +5,7 @@ import request from 'supertest';
 import databaseService from '../dist/services/DatabaseService';
 import { requireTenant } from '../dist/middleware/AuthMiddleware';
 import domainsRouter from '../dist/api/routes/domains';
+import { hashApiKey } from './helpers';
 
 function buildApp() {
   const app = express();
@@ -14,7 +15,8 @@ function buildApp() {
 }
 
 function getTestTenantId(apiKey: string): string {
-  const row = databaseService.getDb().prepare('SELECT id FROM tenants WHERE api_key = ?').get(apiKey) as { id: string } | undefined;
+  const hashed = hashApiKey(apiKey);
+  const row = databaseService.getDb().prepare('SELECT id FROM tenants WHERE api_key_hash = ?').get(hashed) as { id: string } | undefined;
   return row!.id;
 }
 
@@ -49,8 +51,8 @@ describe('domains API', () => {
     databaseService.init(':memory:');
     const db = databaseService.getDb();
     testApiKey = 'test-domains-key';
-    db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(databaseService.uuid(), 'Test', testApiKey, new Date().toISOString());
+    db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run(databaseService.uuid(), 'Test', hashApiKey(testApiKey), new Date().toISOString());
     tenantId = getTestTenantId(testApiKey);
     app = buildApp();
   });
@@ -98,8 +100,8 @@ describe('domains API', () => {
   describe('GET /domains', () => {
     it('should return empty list when no domains for this tenant', async () => {
       const emptyKey = 'empty-tenant-key-' + Date.now();
-      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-        .run(databaseService.uuid(), 'Empty', emptyKey, new Date().toISOString());
+      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+        .run(databaseService.uuid(), 'Empty', hashApiKey(emptyKey), new Date().toISOString());
       const res = await request(app).get('/domains').set({ Authorization: `Bearer ${emptyKey}` });
       assert.equal(res.status, 200);
       assert.equal(res.body.domains.length, 0);
@@ -115,8 +117,8 @@ describe('domains API', () => {
 
     it('should not show other tenants domains', async () => {
       const otherId = databaseService.uuid();
-      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-        .run(otherId, 'Other', 'other-key-' + Date.now(), new Date().toISOString());
+      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+        .run(otherId, 'Other', hashApiKey('other-key-' + Date.now()), new Date().toISOString());
       insertDomain(otherId, { name: 'other-tenant-domain.com' });
 
       const res = await request(app).get('/domains').set(auth());
@@ -143,8 +145,8 @@ describe('domains API', () => {
 
     it('should return 404 for other tenant domain', async () => {
       const otherId = databaseService.uuid();
-      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-        .run(otherId, 'Other2', 'other-key-2', new Date().toISOString());
+      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+        .run(otherId, 'Other2', hashApiKey('other-key-2'), new Date().toISOString());
       const otherDomain = insertDomain(otherId, { name: 'not-my-domain.com' });
       const res = await request(app).get(`/domains/${otherDomain.name}`).set(auth());
       assert.equal(res.status, 404);
@@ -168,8 +170,8 @@ describe('domains API', () => {
 
     it('should return 404 for other tenant domain', async () => {
       const otherId = databaseService.uuid();
-      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-        .run(otherId, 'Other3', 'other-key-3', new Date().toISOString());
+      databaseService.getDb().prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+        .run(otherId, 'Other3', hashApiKey('other-key-3'), new Date().toISOString());
       const otherDomain = insertDomain(otherId, { name: 'cant-delete.com' });
       const res = await request(app).delete(`/domains/${otherDomain.name}`).set(auth());
       assert.equal(res.status, 404);

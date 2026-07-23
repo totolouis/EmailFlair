@@ -231,6 +231,7 @@ describe('Domains API – activate endpoint', () => {
   const { default: databaseService } = require('../dist/services/DatabaseService');
   const { requireTenant } = require('../dist/middleware/AuthMiddleware');
   const domainsRouter = require('../dist/api/routes/domains').default;
+  const { hashApiKey } = require('./helpers');
 
   function buildApp() {
     const a = express();
@@ -244,8 +245,8 @@ describe('Domains API – activate endpoint', () => {
     db = databaseService.getDb();
     testApiKey = 'activate-test-key';
     tenantId = databaseService.uuid();
-    db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(tenantId, 'ActivateTest', testApiKey, new Date().toISOString());
+    db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run(tenantId, 'ActivateTest', hashApiKey(testApiKey), new Date().toISOString());
     app = buildApp();
   });
 
@@ -300,6 +301,7 @@ describe('Emails API – release edge cases', () => {
   const config = require('../dist/config').default;
   const { requireTenant } = require('../dist/middleware/AuthMiddleware');
   const emailsRouter = require('../dist/api/routes/emails').default;
+  const { hashApiKey } = require('./helpers');
 
   function buildApp() {
     const a = express();
@@ -316,8 +318,8 @@ describe('Emails API – release edge cases', () => {
     db = databaseService.getDb();
     testApiKey = 'release-edge-key-' + Date.now();
     tenantId = databaseService.uuid();
-    db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(tenantId, 'ReleaseEdge', testApiKey, new Date().toISOString());
+    db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run(tenantId, 'ReleaseEdge', hashApiKey(testApiKey), new Date().toISOString());
 
     const domainId = databaseService.uuid();
     db.prepare(`
@@ -402,6 +404,7 @@ describe('Emails API – headers serialization', () => {
   const { default: databaseService } = require('../dist/services/DatabaseService');
   const { requireTenant } = require('../dist/middleware/AuthMiddleware');
   const emailsRouter = require('../dist/api/routes/emails').default;
+  const { hashApiKey } = require('./helpers');
 
   function buildApp() {
     const a = express();
@@ -415,8 +418,8 @@ describe('Emails API – headers serialization', () => {
     db = databaseService.getDb();
     testApiKey = 'headers-test-key';
     tenantId = databaseService.uuid();
-    db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(tenantId, 'HeadersTest', testApiKey, new Date().toISOString());
+    db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run(tenantId, 'HeadersTest', hashApiKey(testApiKey), new Date().toISOString());
     app = buildApp();
   });
 
@@ -533,10 +536,11 @@ describe('SMTP gateway – onRcptTo edge cases', () => {
 
     dbSvc = require('../dist/services/DatabaseService').default;
     dbSvc.init(':memory:');
+    const { hashApiKey } = require('./helpers');
     const db = dbSvc.getDb();
     const tenantId = dbSvc.uuid();
-    db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(tenantId, 'RcptToTest', 'rcptto-key', new Date().toISOString());
+    db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run(tenantId, 'RcptToTest', hashApiKey('rcptto-key'), new Date().toISOString());
     db.prepare(`
       INSERT INTO domains (id, tenant_id, name, provider, origin_mx, destination_mx, relay_target, status, created_at, activated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -669,8 +673,9 @@ describe('SMTP gateway – parse failure', () => {
     databaseService.init(':memory:');
     const db = databaseService.getDb();
     const tenantId = databaseService.uuid();
-    db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(tenantId, 'ParseTest', 'parse-key', new Date().toISOString());
+    const { hashApiKey } = require('./helpers');
+    db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run(tenantId, 'ParseTest', hashApiKey('parse-key'), new Date().toISOString());
     db.prepare(`
       INSERT INTO domains (id, tenant_id, name, provider, origin_mx, destination_mx, relay_target, status, created_at, activated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

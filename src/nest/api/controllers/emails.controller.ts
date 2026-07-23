@@ -20,10 +20,11 @@ export class EmailsController {
     decision: string | null; status: string; reason: string | null;
     size_bytes: number | null; received_at: string; processed_at: string | null;
     headers_json: string | null;
-  }, includeHeaders = false): IEmailResponse {
+  }, includeHeaders = false, maskSubject = false): IEmailResponse {
     const out: IEmailResponse = {
       id: row.id, domain: row.domain, sender: row.sender, recipient: row.recipient,
-      subject: row.subject, remoteIp: row.remote_ip, spamScore: row.spam_score,
+      subject: maskSubject ? this.maskText(row.subject) : row.subject,
+      remoteIp: row.remote_ip, spamScore: row.spam_score,
       decision: row.decision as EmailDecision | null, status: row.status as EmailStatus,
       reason: row.reason, sizeBytes: row.size_bytes,
       receivedAt: row.received_at, processedAt: row.processed_at,
@@ -34,6 +35,12 @@ export class EmailsController {
       } catch { out.headers = null; }
     }
     return out;
+  }
+
+  private maskText(text: string | null): string | null {
+    if (!text) return null;
+    if (text.length <= 3) return '***';
+    return text.substring(0, 3) + '***';
   }
 
   @Get()
@@ -49,7 +56,7 @@ export class EmailsController {
       domain: domain || undefined,
       limit: limit ? parseInt(limit, 10) : 100,
     });
-    return { emails: rows.map(r => this.serializeEmail(r)) };
+    return { emails: rows.map(r => this.serializeEmail(r, false, true)) };
   }
 
   @Get('summary')

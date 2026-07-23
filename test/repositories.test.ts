@@ -5,6 +5,7 @@ import tenantRepository from '../dist/repositories/TenantRepository';
 import domainRepository from '../dist/repositories/DomainRepository';
 import emailRepository from '../dist/repositories/EmailRepository';
 import listRepository from '../dist/repositories/ListRepository';
+import { hashApiKey } from './helpers';
 
 describe('repositories', () => {
   let tenantId: string;
@@ -14,11 +15,11 @@ describe('repositories', () => {
     databaseService.init(':memory:');
     const db = databaseService.getDb();
     tenantId = databaseService.uuid();
-    db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(tenantId, 'Test Tenant', 'test-key-repo', new Date().toISOString());
+    db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run(tenantId, 'Test Tenant', hashApiKey('test-key-repo'), new Date().toISOString());
     otherTenantId = databaseService.uuid();
-    db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(otherTenantId, 'Other Tenant', 'other-key-repo', new Date().toISOString());
+    db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run(otherTenantId, 'Other Tenant', hashApiKey('other-key-repo'), new Date().toISOString());
   });
 
   after(() => {
@@ -40,7 +41,7 @@ describe('repositories', () => {
     it('should find tenant by ID', () => {
       const tenant = tenantRepository.findById(tenantId);
       assert.ok(tenant);
-      assert.equal(tenant!.api_key, 'test-key-repo');
+      assert.equal(tenant!.api_key_hash, hashApiKey('test-key-repo'));
     });
 
     it('should return null for unknown ID', () => {

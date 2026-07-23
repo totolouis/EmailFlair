@@ -6,7 +6,7 @@ import config from './config';
 import databaseService from './services/DatabaseService';
 import routingEngineService from './services/RoutingEngineService';
 import loopPreventionService from './services/LoopPreventionService';
-import spamFilterService from './services/SpamFilterService';
+import enhancedSpamFilterService from './services/EnhancedSpamFilterService';
 import quarantineService from './services/QuarantineService';
 import forwarderService from './services/ForwarderService';
 import emailRepository from './repositories/EmailRepository';
@@ -19,6 +19,7 @@ interface ExtendedSession {
     _domainRow?: IDomain;
   };
   remoteAddress?: string;
+  hostNameAppearsAs?: string;
 }
 
 function injectHeaders(rawBuffer: Buffer, headerLines: string[]): Buffer {
@@ -156,14 +157,20 @@ function buildServer(): SMTPServer {
           return;
         }
 
-        // 2. Spam scoring
-        const { score, reasons } = spamFilterService.scoreEmail({
+        // 2. Spam scoring (enhanced with network checks)
+        const { score, reasons } = await enhancedSpamFilterService.scoreEmail({
           tenantId,
           remoteIp,
           senderDomain,
           senderAddress,
           subject,
           hasAttachments: (parsed.attachments || []).length > 0,
+          heloHostname: extSession.hostNameAppearsAs || null,
+          headers: Object.fromEntries(parsed.headers as Map<string, unknown>),
+          bodyText: parsed.text || null,
+          bodyHtml: (parsed.html as string) || null,
+          attachmentCount: (parsed.attachments || []).length,
+          attachmentNames: (parsed.attachments || []).map((a) => a.filename || 'unnamed'),
         });
 
         const processingMs = Date.now() - startedAt;

@@ -7,6 +7,7 @@ import { requireTenant } from '../dist/middleware/AuthMiddleware';
 import domainsRouter from '../dist/api/routes/domains';
 import emailsRouter from '../dist/api/routes/emails';
 import config from '../dist/config';
+import { hashApiKey } from './helpers';
 
 function buildDomainsApp() {
   const app = express();
@@ -33,8 +34,8 @@ describe('additional API edge cases', () => {
     db = databaseService.getDb();
     testApiKey = 'additional-test-key';
     tenantId = databaseService.uuid();
-    db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(tenantId, 'Additional Test', testApiKey, new Date().toISOString());
+    db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run(tenantId, 'Additional Test', hashApiKey(testApiKey), new Date().toISOString());
   });
 
   after(() => {
@@ -93,8 +94,8 @@ describe('additional API edge cases', () => {
   describe('null/undefined edge cases', () => {
     it('should handle empty email list for new tenant', async () => {
       const emptyKey = 'empty-tenant-' + Date.now();
-      db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-        .run(databaseService.uuid(), 'Empty', emptyKey, new Date().toISOString());
+      db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+        .run(databaseService.uuid(), 'Empty', hashApiKey(emptyKey), new Date().toISOString());
       const emailApp = buildEmailsApp();
       const res = await request(emailApp).get('/emails').set({ Authorization: `Bearer ${emptyKey}` });
       assert.equal(res.status, 200);

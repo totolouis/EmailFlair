@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import { Request, Response, NextFunction } from 'express';
 import databaseService from '../dist/services/DatabaseService';
 import { requireTenant, AuthenticatedRequest } from '../dist/middleware/AuthMiddleware';
+import { hashApiKey } from './helpers';
 
 function mockReqRes(token?: string | null) {
   const req = { headers: { authorization: token ? `Bearer ${token}` : '' }, query: {} } as AuthenticatedRequest;
@@ -25,8 +26,8 @@ describe('auth middleware', () => {
     databaseService.init(':memory:');
     const db = databaseService.getDb();
     testTenantKey = 'test-auth-key-12345';
-    db.prepare('INSERT INTO tenants (id, name, api_key, created_at) VALUES (?, ?, ?, ?)')
-      .run(databaseService.uuid(), 'Test', testTenantKey, new Date().toISOString());
+    db.prepare('INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run(databaseService.uuid(), 'Test', hashApiKey(testTenantKey), new Date().toISOString());
   });
 
   after(() => {
@@ -38,7 +39,7 @@ describe('auth middleware', () => {
     requireTenant(req, res, next);
     assert.ok(nextCalled.called);
     assert.ok(req.tenant);
-    assert.equal(req.tenant!.api_key, testTenantKey);
+    assert.equal(req.tenant!.api_key_hash, hashApiKey(testTenantKey));
   });
 
   it('should return 401 for missing Authorization header', () => {

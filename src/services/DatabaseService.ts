@@ -4,6 +4,7 @@ import fs from 'fs';
 import { v4 as uuid } from 'uuid';
 import config from '../config';
 import runMigrations from './DatabaseMigrations';
+import { hashApiKey } from '../utils/crypto';
 
 class DatabaseService {
   private db: Database.Database | null = null;
@@ -46,26 +47,27 @@ class DatabaseService {
     api_key: string;
     created_at: string;
   } {
+    const hashedKey = hashApiKey(config.defaultTenantApiKey);
     const existing = this.getDb()
-      .prepare('SELECT * FROM tenants WHERE api_key = ?')
-      .get(config.defaultTenantApiKey) as { id: string; name: string; api_key: string; created_at: string } | undefined;
+      .prepare('SELECT * FROM tenants WHERE api_key_hash = ?')
+      .get(hashedKey) as { id: string; name: string; api_key_hash: string; created_at: string } | undefined;
 
-    if (existing) return existing;
+    if (existing) return { ...existing, api_key: config.defaultTenantApiKey };
 
     const tenant = {
       id: uuid(),
       name: config.defaultTenantName,
-      api_key: config.defaultTenantApiKey,
+      api_key_hash: hashedKey,
       created_at: new Date().toISOString(),
     };
 
     this.getDb()
       .prepare(
-        'INSERT INTO tenants (id, name, api_key, created_at) VALUES (@id, @name, @api_key, @created_at)'
+        'INSERT INTO tenants (id, name, api_key_hash, created_at) VALUES (@id, @name, @api_key_hash, @created_at)'
       )
       .run(tenant);
 
-    return tenant;
+    return { ...tenant, api_key: config.defaultTenantApiKey };
   }
 
   uuid(): string {

@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import tenantRepository from '../repositories/TenantRepository';
 
 interface AuthenticatedRequest extends Request {
-  tenant?: { id: string; name: string; api_key: string; created_at: string };
+  tenant?: { id: string; name: string; api_key_hash: string; created_at: string };
 }
 
 function requireTenant(req: AuthenticatedRequest, res: Response, next: NextFunction): void {

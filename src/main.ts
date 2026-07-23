@@ -10,6 +10,12 @@ import fs from 'fs';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app.enableCors({
+    origin: [`https://${config.relayHostname}`, `http://${config.relayHostname}`],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    allowedHeaders: ['Authorization', 'Content-Type'],
+  });
+
   const apiPort = config.apiPort;
   const smtpPort = config.smtpPort;
 
