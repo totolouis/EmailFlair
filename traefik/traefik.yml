@@ -13,6 +13,8 @@ certificatesResolvers:
     acme:
       email: ${CERTBOT_EMAIL}
       storage: /certs/acme.json
+      httpChallenge:
+        entryPoint: web
       tlsChallenge: {}
 
 tcp:
@@ -37,6 +39,13 @@ tcp:
 
 http:
   routers:
+    acme-http:
+      entryPoints:
+        - web
+      rule: "Host(`${RELAY_HOSTNAME}`) && PathPrefix(`/.well-known/acme-challenge/`)"
+      priority: 100
+      service: relay-api
+
     relay-api-https:
       entryPoints:
         - websecure
@@ -48,7 +57,7 @@ http:
     relay-http-redirect:
       entryPoints:
         - web
-      rule: "HostRegexp(`{host:.+}`)"
+      rule: "Host(`${RELAY_HOSTNAME}`)"
       middlewares:
         - redirect-https
       service: relay-api
