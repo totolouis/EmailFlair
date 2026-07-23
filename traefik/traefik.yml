@@ -23,5 +23,6 @@ certificatesResolvers:
       tlsChallenge: {}
 
 providers:
-  docker:
-    exposedByDefault: false
+  file:
+    filename: /etc/traefik/traefik-dynamic.yml
+    watch: true
