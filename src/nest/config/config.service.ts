@@ -16,10 +16,7 @@ export class ConfigService {
   readonly quarantineDir: string;
   readonly defaultTenantName: string;
   readonly defaultTenantApiKey: string;
-  readonly smtpTlsPort: number;
-  readonly tlsAcmeEnabled: boolean;
-  readonly tlsAcmeEmail: string;
-  readonly tlsAcmeStorage: string;
+
 
   constructor() {
     this.relayId = process.env.RELAY_ID || 'relay-01';
@@ -33,10 +30,7 @@ export class ConfigService {
     this.quarantineDir = process.env.QUARANTINE_DIR || './data/quarantine';
     this.defaultTenantName = process.env.DEFAULT_TENANT_NAME || 'Default Tenant';
     this.defaultTenantApiKey = process.env.DEFAULT_TENANT_API_KEY || 'dev-tenant-key';
-    this.smtpTlsPort = parseInt(process.env.SMTP_TLS_PORT || '465', 10);
-    this.tlsAcmeEnabled = process.env.TLS_ACME_ENABLED === 'true';
-    this.tlsAcmeEmail = process.env.TLS_ACME_EMAIL || '';
-    this.tlsAcmeStorage = process.env.TLS_ACME_STORAGE || './data/acme';
+
   }
 
   validate(): string[] {
@@ -44,14 +38,7 @@ export class ConfigService {
     if (this.relaySecret === 'change-me' || this.relaySecret.length < 8) {
       errors.push('RELAY_SECRET must be at least 8 characters and not the default value');
     }
-    if (this.tlsAcmeEnabled) {
-      if (!this.tlsAcmeEmail) {
-        errors.push('TLS_ACME_EMAIL is required when TLS_ACME_ENABLED=true');
-      }
-      if (this.relayHostname === 'mx1.emailrelay.com') {
-        errors.push('RELAY_HOSTNAME must be set to a real domain when TLS_ACME_ENABLED=true');
-      }
-    }
+
     return errors;
   }
 }

@@ -48,13 +48,12 @@ function logEmail(record: {
   emailRepository.create(record);
 }
 
-function buildServer(tlsOptions?: { key: Buffer; cert: Buffer; ca?: Buffer }): SMTPServer {
+function buildServer(): SMTPServer {
   const server = new SMTPServer({
     banner: `${config.relayHostname} Email Security Relay`,
     authOptional: true,
     disabledCommands: ['AUTH'],
     logger: false,
-    ...(tlsOptions ? { key: tlsOptions.key, cert: tlsOptions.cert, ...(tlsOptions.ca ? { ca: tlsOptions.ca } : {}) } : {}),
 
     onRcptTo(address: { address: string }, session: SMTPServerSession, callback: (err?: Error | null) => void) {
       const recipientDomain = address.address.split('@')[1];

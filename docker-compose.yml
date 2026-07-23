@@ -1,7 +1,6 @@
 volumes:
   relay-data:
   traefik-data:
-  certbot-data:
 
 services:
   traefik:
@@ -9,9 +8,9 @@ services:
     command:
       - "--configFile=/etc/traefik/traefik.yml"
     ports:
-      - "25:25"     # SMTP (plain TCP passthrough, relay handles STARTTLS)
+      - "25:25"     # SMTP (plain TCP passthrough to relay:2525)
       - "465:465"   # SMTPS (TLS termination via ACME cert)
-      - "80:80"     # HTTP (redirects to HTTPS + ACME challenge routing)
+      - "80:80"     # HTTP (redirects to HTTPS + ACME HTTP-01 challenge)
       - "443:443"   # HTTPS API + dashboard
     environment:
       - CERTBOT_EMAIL=${CERTBOT_EMAIL}
@@ -20,25 +19,6 @@ services:
       - traefik-data:/certs
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
     restart: unless-stopped
-
-  certbot:
-    image: certbot/certbot:latest
-    entrypoint: /bin/sh
-    command:
-      - -c
-      - |
-        certbot certonly --standalone --http-01-port 8080 \
-          -d $$RELAY_HOSTNAME --non-interactive --agree-tos --no-eff-email -m $$CERTBOT_EMAIL \
-        && trap exit TERM \
-        && while :; do certbot renew --non-interactive && sleep 12h; done
-    environment:
-      RELAY_HOSTNAME: ${RELAY_HOSTNAME}
-      CERTBOT_EMAIL: ${CERTBOT_EMAIL}
-    volumes:
-      - certbot-data:/etc/letsencrypt
-    restart: unless-stopped
-    depends_on:
-      - traefik
 
   relay:
     build: .
@@ -54,7 +34,6 @@ services:
       RELAY_HOSTNAME: ${RELAY_HOSTNAME}
       SMTP_PORT: 2525
       API_PORT: 3000
-      TLS_CERT_DIR: /app/data/tls
       SPAM_QUARANTINE_THRESHOLD: ${SPAM_QUARANTINE_THRESHOLD:-5}
       SPAM_REJECT_THRESHOLD: ${SPAM_REJECT_THRESHOLD:-10}
       DB_PATH: /app/data/relay.db
@@ -62,5 +41,4 @@ services:
       DEFAULT_TENANT_API_KEY: ${DEFAULT_TENANT_API_KEY:-dev-tenant-key}
     volumes:
       - relay-data:/app/data
-      - certbot-data:/etc/letsencrypt:ro
     restart: unless-stopped

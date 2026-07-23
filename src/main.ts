@@ -5,7 +5,6 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './nest/app.module';
 import config from './config';
 import databaseService from './services/DatabaseService';
-import { CertManager, type CertFiles } from './tls/CertManager';
 import fs from 'fs';
 
 async function bootstrap() {
@@ -26,43 +25,17 @@ async function bootstrap() {
   instance.get('/health', (_req: any, res: any) => res.json({ ok: true }));
   instance.use('/', express.static(path.join(__dirname, 'dashboard')));
 
-  /* Start HTTP server first so ACME challenge endpoint is live for LE validation */
   await app.listen(apiPort);
   console.log(`[api] listening on port ${apiPort}`);
   console.log(`[dashboard] http://localhost:${apiPort}/`);
 
-  /* Start SMTP server and init TLS */
+  /* Start SMTP server (plain — Traefik handles TLS termination) */
   const { buildServer } = require('./smtp-gateway.js');
-  let smtpServer: any;
-  let tlsServerOptions: CertFiles | undefined;
-
-  const certManager = new CertManager(config.tlsCertDir, config.relayHostname);
-  certManager.init();
-  tlsServerOptions = certManager.getServerOptions();
-
-  function startSmtpServer(options?: CertFiles) {
-    const server = options ? buildServer(options) : buildServer();
-    server.listen(smtpPort, () => {
-      console.log(`[smtp-gateway] listening on port ${smtpPort} as ${config.relayHostname}`);
-    });
-    server.on('error', (err: Error) => console.error('[smtp-gateway] error:', err.message));
-    return server;
-  }
-
-  if (tlsServerOptions) {
-    smtpServer = startSmtpServer(tlsServerOptions);
-    console.log('[tls] SMTP STARTTLS enabled');
-  } else {
-    smtpServer = startSmtpServer();
-  }
-
-  certManager.watchForRenewal((newCert) => {
-    console.log('[tls] Certbot renewed — restarting SMTP with fresh cert');
-    const old = smtpServer;
-    old.close(() => {
-      smtpServer = startSmtpServer(newCert);
-    });
+  const smtpServer = buildServer();
+  smtpServer.listen(smtpPort, () => {
+    console.log(`[smtp-gateway] listening on port ${smtpPort} as ${config.relayHostname}`);
   });
+  smtpServer.on('error', (err: Error) => console.error('[smtp-gateway] error:', err.message));
 
   function shutdown(signal: string) {
     console.log(`\n[${signal}] Shutting down gracefully...`);

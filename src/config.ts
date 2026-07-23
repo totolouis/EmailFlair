@@ -33,8 +33,7 @@ const config: IConfig = {
   defaultTenantName: process.env.DEFAULT_TENANT_NAME || 'Default Tenant',
   defaultTenantApiKey: process.env.DEFAULT_TENANT_API_KEY || 'dev-tenant-key',
 
-  smtpTlsPort: parseInt(process.env.SMTP_TLS_PORT || '465', 10),
-  tlsCertDir: process.env.TLS_CERT_DIR || './data/tls',
+
 };
 
 export default config;

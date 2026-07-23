@@ -37,13 +37,6 @@ tcp:
 
 http:
   routers:
-    acme-challenge:
-      entryPoints:
-        - web
-      rule: "PathPrefix(`/.well-known/acme-challenge/`)"
-      service: acme-challenge
-      priority: 100
-
     relay-api-https:
       entryPoints:
         - websecure
@@ -67,11 +60,6 @@ http:
         port: 443
 
   services:
-    acme-challenge:
-      loadBalancer:
-        servers:
-          - address: "certbot:8080"
-
     relay-api:
       loadBalancer:
         servers:
