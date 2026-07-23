@@ -16,12 +16,12 @@ entryPoints:
 certificatesResolvers:
   letsencrypt:
     acme:
+      email: ${CERTBOT_EMAIL}
       storage: /certs/acme.json
       httpChallenge:
         entryPoint: web
       tlsChallenge: {}
 
 providers:
-  file:
-    filename: /etc/traefik/traefik-dynamic.yml
-    watch: true
+  docker:
+    exposedByDefault: false
