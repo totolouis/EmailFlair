@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Delete, Param, Body, UseGuards,
+  Controller, Get, Post, Patch, Delete, Param, Body, UseGuards,
   NotFoundException, ConflictException, BadRequestException,
   UnprocessableEntityException, HttpCode
 } from '@nestjs/common';
@@ -99,6 +99,19 @@ export class DomainsController {
     }
 
     domainRepository.updateStatus(row.id, 'ACTIVE', new Date().toISOString());
+    const updated = domainRepository.findByName(row.name);
+    return { domain: this.serializeDomain(updated!) };
+  }
+
+  @Patch(':name')
+  update(@Tenant() tenant: TenantInfo, @Param('name') name: string, @Body() body: { destinationMx?: string }) {
+    const row = domainRepository.findByTenantAndName(tenant.id, name.toLowerCase());
+    if (!row) throw new NotFoundException('domain not found');
+
+    if (body.destinationMx) {
+      domainRepository.updateDestinationMx(row.id, body.destinationMx);
+    }
+
     const updated = domainRepository.findByName(row.name);
     return { domain: this.serializeDomain(updated!) };
   }

@@ -44,6 +44,13 @@ class DomainRepository {
       .run(status, activatedAt, id);
   }
 
+  updateDestinationMx(id: string, destinationMx: string): void {
+    databaseService
+      .getDb()
+      .prepare('UPDATE domains SET destination_mx = ? WHERE id = ?')
+      .run(destinationMx, id);
+  }
+
   delete(id: string): void {
     databaseService.getDb().prepare('DELETE FROM domains WHERE id = ?').run(id);
   }
