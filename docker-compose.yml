@@ -7,6 +7,7 @@ services:
     image: traefik:v3.2
     command:
       - "--configFile=/etc/traefik/traefik.yml"
+      - "--certificatesresolvers.letsencrypt.acme.email=${CERTBOT_EMAIL}"
     ports:
       - "25:25"     # SMTP (plain TCP passthrough to relay:2525)
       - "465:465"   # SMTPS (TLS termination via ACME cert)

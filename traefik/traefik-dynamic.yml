@@ -53,4 +53,4 @@ http:
     relay-api:
       loadBalancer:
         servers:
-          - address: "relay:3000"
+          - url: "http://relay:3000"
