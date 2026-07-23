@@ -124,9 +124,13 @@ function buildServer(): SMTPServer {
         const senderDomain = (senderAddress || '').split('@')[1] || '';
         const subject = parsed.subject || '';
 
+        const recipientDomain = recipient.split('@')[1] || '';
+        console.log(`[smtp] received from=<${senderAddress}> to=<${recipient}> domain=<${recipientDomain}> size=${rawBuffer.length}`);
+
         // 1. Loop prevention
         const loopCheck = loopPreventionService.detectLoop(parsed.headers as Map<string, unknown>);
         if (loopCheck.isLoop) {
+          console.log(`[smtp] loop detected: ${loopCheck.reason}`);
           logEmail({
             id: emailId,
             tenant_id: tenantId,
@@ -190,6 +194,7 @@ function buildServer(): SMTPServer {
 
         // 3. Decision
         if (score >= config.rejectThreshold) {
+          console.log(`[smtp] spam-reject score=${score} reasons="${reasons.join('; ')}"`);
           logEmail({ ...baseRecord, decision: 'REJECTED' as EmailDecision, status: 'REJECTED' as EmailStatus, reason: reasons.join('; '), eml_path: null });
           const spamErr = new Error('Message rejected as spam/phishing');
           (spamErr as { responseCode?: number }).responseCode = 554;
@@ -198,6 +203,7 @@ function buildServer(): SMTPServer {
         }
 
         if (score >= config.quarantineThreshold) {
+          console.log(`[smtp] quarantine score=${score} reasons="${reasons.join('; ')}"`);
           const emlPath = quarantineService.storeRaw(emailId, stampedRaw);
           logEmail({ ...baseRecord, decision: 'QUARANTINED' as EmailDecision, status: 'QUARANTINED' as EmailStatus, reason: reasons.join('; '), eml_path: emlPath });
           callback();
@@ -206,6 +212,7 @@ function buildServer(): SMTPServer {
 
         // 4. Forward
         if (!domainRow || !domainRow.destination_mx) {
+          console.log(`[smtp] no destination mx configured for domain ${recipientDomain}`);
           logEmail({ ...baseRecord, decision: 'REJECTED' as EmailDecision, status: 'REJECTED' as EmailStatus, reason: 'no destination configured', eml_path: null });
           const destErr = new Error('No destination configured for this domain');
           (destErr as { responseCode?: number }).responseCode = 451;
@@ -213,6 +220,7 @@ function buildServer(): SMTPServer {
           return;
         }
 
+        console.log(`[smtp] forwarding to ${domainRow.destination_mx}`);
         try {
           await forwarderService.forward({
             destinationHost: domainRow.destination_mx,
@@ -220,9 +228,11 @@ function buildServer(): SMTPServer {
             to: (extSession.envelope.rcptTo || []).map((r) => r.address),
             rawMessage: stampedRaw,
           });
+          console.log(`[smtp] forwarded successfully to ${domainRow.destination_mx}`);
           logEmail({ ...baseRecord, decision: 'FORWARDED' as EmailDecision, status: 'FORWARDED' as EmailStatus, reason: reasons.join('; ') || null, eml_path: null });
           callback();
         } catch (err) {
+          console.log(`[smtp] forward failed to ${domainRow.destination_mx}: ${(err as Error).message}`);
           logEmail({ ...baseRecord, decision: 'REJECTED' as EmailDecision, status: 'REJECTED' as EmailStatus, reason: `forwarding failed: ${(err as Error).message}`, eml_path: null });
           const fwdErr = new Error('Temporary failure forwarding message');
           (fwdErr as { responseCode?: number }).responseCode = 451;
